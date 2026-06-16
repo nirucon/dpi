@@ -3,23 +3,13 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm/Reaper Workstation Postinstall
-# Target: Debian 13 Stable/Trixie
+# NIRUCON Debian 13 dwm Postinstall
+# Profiles:
+#   1) Laptop
+#   2) Audio Workstation / Reaper
+#   3) Both
 #
-# Installs:
-# - dwm, st, dmenu, slock from nirucon/suckless
-# - lookandfeel from nirucon/suckless_lookandfeel
-# - SDDM login session
-# - English system locale + Swedish keyboard
-# - NetworkManager laptop/workstation setup
-# - PipeWire/WirePlumber audio stack for Reaper
-# - xss-lock + slock
-# - Nerd Font
-# - Tailscale optional
-# - Signal optional
-# - Spotify via Flatpak optional
-# - Basic pro-audio/dev/media tools
-#
+# Target: Debian 13 / Trixie
 # Run as normal user, not root.
 # =============================================================================
 
@@ -29,35 +19,27 @@ LOOKANDFEEL_REPO="https://github.com/nirucon/suckless_lookandfeel.git"
 SUCKLESS_DIR="$HOME/.config/suckless"
 LOOKANDFEEL_DIR="$HOME/.cache/dwm-setup/lookandfeel"
 
-SESSION_WRAPPER="/usr/local/bin/dwm-session"
-SESSION_DESKTOP="/usr/share/xsessions/dwm.desktop"
-
 LOCAL_BIN="$HOME/.local/bin"
 LOCAL_SHARE="$HOME/.local/share"
 XINITRC_DIR="$HOME/.config/xinitrc.d"
 
-say()  { printf '\033[1;34m[postinstall]\033[0m %s\n' "$*"; }
-ok()   { printf '\033[1;32m[ ok ]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
-fail() { printf '\033[1;31m[fail]\033[0m %s\n' "$*" >&2; }
+SESSION_WRAPPER="/usr/local/bin/dwm-session"
+SESSION_DESKTOP="/usr/share/xsessions/dwm.desktop"
+
+NC="\033[0m"; GRN="\033[1;32m"; RED="\033[1;31m"; YLW="\033[1;33m"; BLU="\033[1;34m"; MAG="\033[1;35m"
+say()  { printf "${BLU}[postinstall]${NC} %s\n" "$*"; }
+step() { printf "${MAG}[phase]${NC} %s\n" "$*"; }
+ok()   { printf "${GRN}[ ok ]${NC} %s\n" "$*"; }
+warn() { printf "${YLW}[warn]${NC} %s\n" "$*"; }
+fail() { printf "${RED}[fail]${NC} %s\n" "$*" >&2; }
 
 trap 'fail "Aborted at line $LINENO while running: ${BASH_COMMAND:-unknown}"' ERR
 
-if [[ "$EUID" -eq 0 ]]; then
-  fail "Run as normal user, not root."
-  exit 1
-fi
-
-if ! command -v sudo >/dev/null 2>&1; then
-  fail "sudo saknas. Installera sudo och lägg användaren i sudo-gruppen först."
-  exit 1
-fi
+[[ "$EUID" -ne 0 ]] || { fail "Run as normal user, not root."; exit 1; }
+command -v sudo >/dev/null 2>&1 || { fail "sudo saknas."; exit 1; }
 
 ask_yes_no() {
-  local prompt="$1"
-  local default="${2:-N}"
-  local answer
-
+  local prompt="$1" default="${2:-N}" answer
   if [[ "$default" == "Y" ]]; then
     read -r -p "$prompt [Y/n] " answer
     [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]
@@ -67,45 +49,48 @@ ask_yes_no() {
   fi
 }
 
-# -----------------------------------------------------------------------------
-# Options
-# -----------------------------------------------------------------------------
+echo
+say "NIRUCON Debian 13 dwm Postinstall"
+echo
+echo "Select profile:"
+echo "  1) Laptop"
+echo "  2) Audio Workstation / Reaper"
+echo "  3) Both"
+read -r -p "Choice [1/2/3]: " PROFILE_CHOICE
+
+IS_LAPTOP=0
+IS_AUDIO=0
+
+case "$PROFILE_CHOICE" in
+  1) IS_LAPTOP=1 ;;
+  2) IS_AUDIO=1 ;;
+  3) IS_LAPTOP=1; IS_AUDIO=1 ;;
+  *) fail "Invalid profile choice."; exit 1 ;;
+esac
 
 INSTALL_TAILSCALE=0
 INSTALL_SIGNAL=0
-INSTALL_SPOTIFY_FLATPAK=0
-INSTALL_REAPER_DEPS=1
+INSTALL_SPOTIFY=0
+INSTALL_HELIUM=0
 PURGE_PLASMA=0
 PATCH_STATUSBAR=1
 
-echo
-say "NIRUCON Debian 13 dwm/Reaper Workstation Postinstall"
-echo
-
 ask_yes_no "Install Tailscale?" "Y" && INSTALL_TAILSCALE=1
 ask_yes_no "Install Signal Desktop?" "Y" && INSTALL_SIGNAL=1
-ask_yes_no "Install Spotify via Flatpak?" "N" && INSTALL_SPOTIFY_FLATPAK=1
+ask_yes_no "Install Spotify via Debian repo/.deb method?" "Y" && INSTALL_SPOTIFY=1
+ask_yes_no "Install Helium Browser from latest .deb release?" "Y" && INSTALL_HELIUM=1
+ask_yes_no "Patch dwm-status.sh for Debian?" "Y" && PATCH_STATUSBAR=1 || PATCH_STATUSBAR=0
 ask_yes_no "Purge Plasma/KDE desktop packages if present, but keep SDDM?" "N" && PURGE_PLASMA=1
-ask_yes_no "Patch dwm-status.sh for Debian where needed?" "Y" && PATCH_STATUSBAR=1 || PATCH_STATUSBAR=0
 
-# -----------------------------------------------------------------------------
-# System update
-# -----------------------------------------------------------------------------
-
-say "Updating Debian..."
+step "Updating Debian"
 sudo apt update
 sudo apt full-upgrade -y
 
-# -----------------------------------------------------------------------------
-# Base packages
-# -----------------------------------------------------------------------------
-
-say "Installing base dwm/workstation packages..."
-
+step "Installing base system packages"
 sudo apt install -y \
   build-essential gcc make pkg-config git curl wget rsync unzip zip tar tree \
   findutils coreutils grep sed gawk diffutils file xdg-utils dbus-x11 \
-  ca-certificates gnupg lsb-release software-properties-common \
+  ca-certificates gnupg lsb-release apt-transport-https \
   xorg xinit x11-xserver-utils x11-utils x11-xkb-utils xclip xsel \
   sddm network-manager network-manager-gnome rfkill iw wireless-tools \
   libx11-dev libxft-dev libxinerama-dev libxrandr-dev libxext-dev \
@@ -114,7 +99,7 @@ sudo apt install -y \
   fonts-jetbrains-mono \
   feh picom rofi dunst libnotify-bin \
   kitty maim slop brightnessctl playerctl pavucontrol \
-  pipewire pipewire-alsa pipewire-pulse wireplumber pipewire-jack qpwgraph \
+  pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber qpwgraph \
   alsa-utils alsa-ucm-conf rtkit \
   pcmanfm thunar thunar-archive-plugin gvfs gvfs-backends \
   udisks2 udiskie blueman xss-lock \
@@ -123,15 +108,17 @@ sudo apt install -y \
   mpv vlc cmus ffmpeg ffmpegthumbnailer gimp imagemagick sxiv \
   arandr lxappearance filelight unrar p7zip-full \
   nextcloud-desktop \
-  flatpak
+  upower acpi
 
-# -----------------------------------------------------------------------------
-# Reaper / pro audio packages
-# -----------------------------------------------------------------------------
+if [[ "$IS_LAPTOP" -eq 1 ]]; then
+  step "Installing laptop power packages"
+  sudo apt install -y power-profiles-daemon acpid
+  sudo systemctl enable acpid
+  sudo systemctl enable power-profiles-daemon
+fi
 
-if [[ "$INSTALL_REAPER_DEPS" -eq 1 ]]; then
-  say "Installing Reaper/pro-audio support packages..."
-
+if [[ "$IS_AUDIO" -eq 1 ]]; then
+  step "Installing Reaper/audio workstation packages"
   sudo apt install -y \
     jackd2 qjackctl \
     libasound2-plugins \
@@ -143,25 +130,46 @@ if [[ "$INSTALL_REAPER_DEPS" -eq 1 ]]; then
     audacity \
     soundconverter \
     mediainfo \
-    sox
+    sox \
+    linux-cpupower \
+    irqbalance
 
-  say "Adding user to audio/video groups..."
+  sudo systemctl enable irqbalance
+
+  step "Applying realtime audio limits"
   sudo usermod -aG audio,video "$USER" || true
 
-  say "Setting basic realtime audio limits..."
   sudo tee /etc/security/limits.d/audio.conf >/dev/null <<'EOF'
-@audio   -  rtprio     95
+@audio   -  rtprio     98
 @audio   -  memlock    unlimited
 @audio   -  nice      -19
 EOF
+
+  sudo tee /etc/sysctl.d/99-audio.conf >/dev/null <<'EOF'
+vm.swappiness=10
+fs.inotify.max_user_watches=524288
+EOF
+
+  sudo sysctl --system >/dev/null || true
+
+  mkdir -p "$LOCAL_BIN"
+
+  cat > "$LOCAL_BIN/audio-performance.sh" <<'EOF'
+#!/usr/bin/env bash
+sudo cpupower frequency-set -g performance
+echo "CPU governor set to performance."
+EOF
+
+  cat > "$LOCAL_BIN/audio-balanced.sh" <<'EOF'
+#!/usr/bin/env bash
+sudo cpupower frequency-set -g schedutil 2>/dev/null || sudo cpupower frequency-set -g ondemand
+echo "CPU governor set to balanced/schedutil."
+EOF
+
+  chmod +x "$LOCAL_BIN/audio-performance.sh" "$LOCAL_BIN/audio-balanced.sh"
 fi
 
-# -----------------------------------------------------------------------------
-# Firmware / microcode
-# -----------------------------------------------------------------------------
-
-say "Installing firmware and microcode..."
-
+step "Installing firmware and microcode"
 sudo apt install -y firmware-linux firmware-misc-nonfree || true
 
 if lscpu | grep -qi intel; then
@@ -170,12 +178,7 @@ elif lscpu | grep -qi amd; then
   sudo apt install -y amd64-microcode || true
 fi
 
-# -----------------------------------------------------------------------------
-# Locale / keyboard
-# -----------------------------------------------------------------------------
-
-say "Setting English system locale and Swedish keyboard..."
-
+step "Setting English locale and Swedish keyboard"
 sudo sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 sudo sed -i 's/^# *sv_SE.UTF-8 UTF-8/sv_SE.UTF-8 UTF-8/' /etc/locale.gen
 sudo locale-gen
@@ -187,29 +190,16 @@ mkdir -p "$HOME/.config"
 printf 'en_US\n' > "$HOME/.config/user-dirs.locale"
 LANG=en_US.UTF-8 xdg-user-dirs-update --force || true
 
-# -----------------------------------------------------------------------------
-# Services
-# -----------------------------------------------------------------------------
-
-say "Enabling services..."
-
+step "Enabling services"
 sudo systemctl enable NetworkManager
 sudo systemctl enable sddm
-
 systemctl --user enable pipewire pipewire-pulse wireplumber 2>/dev/null || true
 
-# -----------------------------------------------------------------------------
-# NetworkManager cleanup
-# -----------------------------------------------------------------------------
-
-say "Preparing NetworkManager to own WiFi/Ethernet..."
-
+step "Preparing NetworkManager"
 if [[ -f /etc/network/interfaces ]]; then
   sudo cp /etc/network/interfaces "/etc/network/interfaces.bak.$(date +%Y%m%d-%H%M%S)"
   sudo tee /etc/network/interfaces >/dev/null <<'EOF'
 # Managed for NetworkManager desktop use.
-# Loopback only. WiFi/Ethernet should be handled by NetworkManager.
-
 auto lo
 iface lo inet loopback
 EOF
@@ -223,12 +213,7 @@ plugins=ifupdown,keyfile
 managed=true
 EOF
 
-# -----------------------------------------------------------------------------
-# Clone/build suckless
-# -----------------------------------------------------------------------------
-
-say "Cloning/updating suckless repo..."
-
+step "Cloning/updating suckless"
 mkdir -p "$(dirname "$SUCKLESS_DIR")"
 
 if [[ -d "$SUCKLESS_DIR/.git" ]]; then
@@ -238,21 +223,18 @@ else
   git clone "$SUCKLESS_REPO" "$SUCKLESS_DIR"
 fi
 
-say "Applying Debian slock nobody/nogroup fix..."
-
+step "Applying Debian slock fix: nobody/nogroup"
 if [[ -f "$SUCKLESS_DIR/slock/config.h" ]]; then
   sed -i 's/static const char \*group = "nobody";/static const char *group = "nogroup";/' "$SUCKLESS_DIR/slock/config.h"
 fi
-
 if [[ -f "$SUCKLESS_DIR/slock/config.def.h" ]]; then
   sed -i 's/static const char \*group = "nobody";/static const char *group = "nogroup";/' "$SUCKLESS_DIR/slock/config.def.h"
 fi
 
-say "Building dwm, dmenu, st, slock..."
-
+step "Building dwm, dmenu, st, slock"
 for app in dwm dmenu st slock; do
   if [[ -d "$SUCKLESS_DIR/$app" ]]; then
-    say "Building $app..."
+    say "Building $app"
     make -C "$SUCKLESS_DIR/$app" clean
     make -C "$SUCKLESS_DIR/$app" -j"$(nproc)"
     sudo make -C "$SUCKLESS_DIR/$app" PREFIX=/usr/local install
@@ -262,12 +244,7 @@ for app in dwm dmenu st slock; do
   fi
 done
 
-# -----------------------------------------------------------------------------
-# Look and feel
-# -----------------------------------------------------------------------------
-
-say "Cloning/updating lookandfeel repo..."
-
+step "Cloning/updating lookandfeel"
 mkdir -p "$(dirname "$LOOKANDFEEL_DIR")"
 
 if [[ -d "$LOOKANDFEEL_DIR/.git" ]]; then
@@ -277,33 +254,19 @@ else
   git clone "$LOOKANDFEEL_REPO" "$LOOKANDFEEL_DIR"
 fi
 
-say "Deploying lookandfeel files..."
-
+step "Deploying lookandfeel"
 mkdir -p "$HOME/.config" "$LOCAL_BIN" "$LOCAL_SHARE"
 
-if [[ -d "$LOOKANDFEEL_DIR/config" ]]; then
-  rsync -a "$LOOKANDFEEL_DIR/config/" "$HOME/.config/"
-fi
-
-if [[ -d "$LOOKANDFEEL_DIR/local/bin" ]]; then
-  rsync -a "$LOOKANDFEEL_DIR/local/bin/" "$LOCAL_BIN/"
-  chmod +x "$LOCAL_BIN/"* 2>/dev/null || true
-fi
-
-if [[ -d "$LOOKANDFEEL_DIR/local/share" ]]; then
-  rsync -a "$LOOKANDFEEL_DIR/local/share/" "$LOCAL_SHARE/"
-fi
+[[ -d "$LOOKANDFEEL_DIR/config" ]] && rsync -a "$LOOKANDFEEL_DIR/config/" "$HOME/.config/"
+[[ -d "$LOOKANDFEEL_DIR/local/bin" ]] && rsync -a "$LOOKANDFEEL_DIR/local/bin/" "$LOCAL_BIN/"
+[[ -d "$LOOKANDFEEL_DIR/local/share" ]] && rsync -a "$LOOKANDFEEL_DIR/local/share/" "$LOCAL_SHARE/"
+chmod +x "$LOCAL_BIN/"* 2>/dev/null || true
 
 touch "$HOME/.bash_profile"
 grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bash_profile" || \
   echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bash_profile"
 
-# -----------------------------------------------------------------------------
-# Nerd Font
-# -----------------------------------------------------------------------------
-
-say "Installing JetBrainsMono Nerd Font..."
-
+step "Installing JetBrainsMono Nerd Font"
 mkdir -p "$HOME/.local/share/fonts/JetBrainsMonoNerd"
 TMPFONT="$(mktemp -d)"
 
@@ -317,30 +280,17 @@ fi
 
 rm -rf "$TMPFONT"
 
-# -----------------------------------------------------------------------------
-# Debian patch for dwm-status.sh
-# -----------------------------------------------------------------------------
-
 if [[ "$PATCH_STATUSBAR" -eq 1 && -f "$LOCAL_BIN/dwm-status.sh" ]]; then
-  say "Patching dwm-status.sh for Debian..."
-
+  step "Patching dwm-status.sh for Debian"
   cp "$LOCAL_BIN/dwm-status.sh" "$LOCAL_BIN/dwm-status.sh.bak.$(date +%Y%m%d-%H%M%S)"
 
-  # Make PATH include sbin tools too.
   sed -i 's|export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"|export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"|' "$LOCAL_BIN/dwm-status.sh"
-
-  # Debian has no checkupdates. Disable Arch-specific update counter by default.
   sed -i 's/^SHOW_UPDATES=1/SHOW_UPDATES=0/' "$LOCAL_BIN/dwm-status.sh"
 
   chmod +x "$LOCAL_BIN/dwm-status.sh"
 fi
 
-# -----------------------------------------------------------------------------
-# SDDM / dwm session
-# -----------------------------------------------------------------------------
-
-say "Creating dwm session wrapper..."
-
+step "Creating SDDM dwm session"
 sudo tee "$SESSION_WRAPPER" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -382,12 +332,16 @@ Type=Application
 DesktopNames=dwm
 EOF
 
-# -----------------------------------------------------------------------------
-# xinitrc hooks
-# -----------------------------------------------------------------------------
+sudo mkdir -p /etc/sddm.conf.d
+sudo tee /etc/sddm.conf.d/10-nirucon.conf >/dev/null <<'EOF'
+[Users]
+RememberLastUser=true
 
-say "Creating xinitrc.d hooks..."
+[General]
+RememberLastSession=true
+EOF
 
+step "Creating xinitrc.d hooks"
 mkdir -p "$XINITRC_DIR"
 
 cat > "$XINITRC_DIR/10-env.sh" <<'EOF'
@@ -448,7 +402,6 @@ EOF
 
 cat > "$XINITRC_DIR/60-audio.sh" <<'EOF'
 #!/usr/bin/env bash
-
 systemctl --user start pipewire pipewire-pulse wireplumber 2>/dev/null || true
 EOF
 
@@ -459,8 +412,7 @@ EOF
 
 chmod +x "$XINITRC_DIR/"*.sh
 
-say "Creating .xinitrc fallback..."
-
+step "Creating .xinitrc fallback"
 cat > "$HOME/.xinitrc" <<'EOF'
 #!/usr/bin/env bash
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
@@ -484,13 +436,8 @@ EOF
 
 chmod +x "$HOME/.xinitrc"
 
-# -----------------------------------------------------------------------------
-# Optional apps
-# -----------------------------------------------------------------------------
-
-if [[ "$INSTALL_SIGNAL" -eq 1 ]]; then
-  say "Installing Signal Desktop..."
-
+install_signal() {
+  step "Installing Signal Desktop"
   wget -O- https://updates.signal.org/desktop/apt/keys.asc \
     | gpg --dearmor \
     | sudo tee /usr/share/keyrings/signal-desktop-keyring.gpg >/dev/null
@@ -500,57 +447,92 @@ if [[ "$INSTALL_SIGNAL" -eq 1 ]]; then
 
   sudo apt update
   sudo apt install -y signal-desktop || warn "Signal installation failed"
-fi
+}
 
-if [[ "$INSTALL_SPOTIFY_FLATPAK" -eq 1 ]]; then
-  say "Installing Spotify via Flatpak..."
+install_spotify() {
+  step "Installing Spotify via official Debian repo"
 
-  sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-  flatpak install -y flathub com.spotify.Client || warn "Spotify Flatpak installation failed"
-fi
+  sudo rm -f /etc/apt/sources.list.d/spotify.list
+  sudo rm -f /usr/share/keyrings/spotify.gpg /etc/apt/keyrings/spotify.gpg
+
+  sudo install -d -m 0755 /etc/apt/keyrings
+
+  if curl -fsSL https://download.spotify.com/debian/pubkey_6224F9941A8AA6D1.gpg \
+    | gpg --dearmor \
+    | sudo tee /etc/apt/keyrings/spotify.gpg >/dev/null; then
+
+    echo "deb [signed-by=/etc/apt/keyrings/spotify.gpg] https://repository.spotify.com stable non-free" \
+      | sudo tee /etc/apt/sources.list.d/spotify.list >/dev/null
+
+    if sudo apt update && sudo apt install -y spotify-client; then
+      ok "Spotify installed"
+    else
+      warn "Spotify repo failed. Removing repo to avoid broken apt updates."
+      sudo rm -f /etc/apt/sources.list.d/spotify.list
+      sudo apt update || true
+    fi
+  else
+    warn "Could not import Spotify key"
+  fi
+}
+
+install_helium() {
+  step "Installing Helium Browser from latest .deb release"
+
+  local tmp url
+  tmp="$(mktemp -d)"
+
+  url="$(curl -fsSL https://api.github.com/repos/imputnet/helium-linux/releases/latest \
+    | grep browser_download_url \
+    | grep -Ei 'amd64\.deb|x86_64\.deb' \
+    | head -n1 \
+    | cut -d '"' -f4 || true)"
+
+  if [[ -z "${url:-}" ]]; then
+    warn "Could not find Helium .deb release URL."
+    rm -rf "$tmp"
+    return 0
+  fi
+
+  if wget -O "$tmp/helium.deb" "$url"; then
+    sudo apt install -y "$tmp/helium.deb" || warn "Helium installation failed"
+  else
+    warn "Could not download Helium .deb"
+  fi
+
+  rm -rf "$tmp"
+}
+
+[[ "$INSTALL_SIGNAL" -eq 1 ]] && install_signal
+[[ "$INSTALL_SPOTIFY" -eq 1 ]] && install_spotify
+[[ "$INSTALL_HELIUM" -eq 1 ]] && install_helium
 
 if [[ "$INSTALL_TAILSCALE" -eq 1 ]]; then
-  say "Installing Tailscale..."
-
+  step "Installing Tailscale"
   curl -fsSL https://tailscale.com/install.sh | sh
   sudo systemctl enable --now tailscaled
-  warn "Run after reboot/login if not already authenticated: sudo tailscale up"
+  warn "Run after reboot/login if needed: sudo tailscale up"
 fi
 
-# -----------------------------------------------------------------------------
-# Optional Plasma purge
-# -----------------------------------------------------------------------------
-
 if [[ "$PURGE_PLASMA" -eq 1 ]]; then
-  say "Purging Plasma/KDE desktop packages while keeping SDDM..."
-
+  step "Purging Plasma/KDE desktop packages while keeping SDDM"
   sudo apt purge -y \
     plasma-desktop plasma-workspace plasma-discover plasma-discover-backend-fwupd \
     plasma-disks plasma-firewall plasma-nm plasma-pa plasma-systemmonitor \
     plasma-thunderbolt plasma-vault plasma-welcome \
     kde-spectacle gwenview ark || true
-
   sudo apt autoremove --purge -y
 fi
 
-# -----------------------------------------------------------------------------
-# Cleanup
-# -----------------------------------------------------------------------------
-
-say "Final cleanup..."
-
+step "Final cleanup"
 sudo apt autoremove --purge -y
 sudo apt clean
 
-# -----------------------------------------------------------------------------
-# Verification
-# -----------------------------------------------------------------------------
-
 echo
-say "Verification"
+step "Verification"
 echo "Debian:          $(cat /etc/debian_version 2>/dev/null || echo unknown)"
 echo "Kernel:          $(uname -r)"
-echo "Locale file:     $(grep '^LANG=' /etc/default/locale 2>/dev/null || echo missing)"
+echo "Locale:          $(grep '^LANG=' /etc/default/locale 2>/dev/null || echo missing)"
 echo "X11 keymap:      $(localectl status 2>/dev/null | grep 'X11 Layout' || echo unknown)"
 echo "dwm:             $(command -v dwm || echo missing)"
 echo "st:              $(command -v st || echo missing)"
@@ -566,6 +548,10 @@ echo "SDDM:            $(systemctl is-enabled sddm 2>/dev/null || echo unknown)"
 echo "PipeWire:        $(command -v pipewire || echo missing)"
 echo "WirePlumber:     $(command -v wireplumber || echo missing)"
 echo "Nerd Font:       $(fc-match 'JetBrainsMono Nerd Font' | head -1)"
+echo "Helium:          $(command -v helium-browser || command -v helium || echo optional/missing)"
+echo "Spotify:         $(command -v spotify || echo optional/missing)"
+echo "Signal:          $(command -v signal-desktop || echo optional/missing)"
+echo "Tailscale:       $(command -v tailscale || echo optional/missing)"
 echo
 
 if fc-match "JetBrainsMono Nerd Font" | grep -qi "JetBrainsMono"; then
@@ -574,27 +560,31 @@ else
   warn "Nerd Font may not be matched correctly"
 fi
 
-if command -v slock >/dev/null 2>&1; then
-  ok "slock installed. Test manually after login: slock"
+if [[ "$IS_AUDIO" -eq 1 ]]; then
+  ok "Audio profile installed. After reboot, verify with: pactl info"
+  warn "For recording sessions, run: audio-performance.sh"
 fi
 
-echo
+if [[ "$IS_LAPTOP" -eq 1 ]]; then
+  ok "Laptop profile installed."
+fi
+
 ok "Postinstall complete."
 echo
 echo "Recommended next step:"
 echo "  sudo reboot"
 echo
 echo "After reboot:"
-echo "  1. Choose dwm in SDDM."
-echo "  2. Connect WiFi via nmcli/nm-applet if needed."
-echo "  3. Run: sudo tailscale up   # if Tailscale was installed"
-echo "  4. Verify:"
-echo "       nmcli device status"
-echo "       pgrep -a picom"
-echo "       pgrep -a dunst"
-echo "       pgrep -a xss-lock"
-echo "       pactl info"
+echo "  Choose dwm in SDDM."
+echo "  nmcli device status"
+echo "  pgrep -a picom"
+echo "  pgrep -a dunst"
+echo "  pgrep -a xss-lock"
+echo "  pactl info"
+echo "  slock"
+echo
+echo "If Tailscale was installed:"
+echo "  sudo tailscale up"
 echo
 echo "Reaper:"
-echo "  Download Linux build from reaper.fm and install manually."
-echo "  Audio stack installed: PipeWire + WirePlumber + JACK compatibility."
+echo "  Download and install Linux build from reaper.fm manually."
