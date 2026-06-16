@@ -106,7 +106,7 @@ sudo apt install -y \
   fastfetch btop htop glances ncdu duf jq fzf ripgrep fd-find pv \
   neovim vim micro \
   mpv vlc cmus ffmpeg ffmpegthumbnailer gimp imagemagick sxiv \
-  arandr lxappearance filelight unrar p7zip-full \
+  arandr lxappearance filelight unrar-free p7zip-full \
   nextcloud-desktop \
   upower acpi
 
