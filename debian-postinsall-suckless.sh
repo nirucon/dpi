@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm Postinstall
+# NIRUCON Debian 13 dwm Postinstall v1.6.0
 # =============================================================================
 #
 # Target:
@@ -228,7 +228,7 @@ note "Using --no-install-recommends to avoid unnecessary desktop packages."
 
 sudo apt install "${APT_FLAGS[@]}" \
   build-essential gcc make pkg-config git curl wget rsync unzip zip tar tree \
-  findutils coreutils grep sed gawk diffutils file xdg-utils dbus-x11 \
+  findutils coreutils grep sed gawk diffutils file xdg-utils xdg-user-dirs dbus-x11 \
   ca-certificates gnupg lsb-release apt-transport-https \
   xorg xinit x11-xserver-utils x11-utils x11-xkb-utils xclip xsel \
   sddm \
@@ -238,14 +238,14 @@ sudo apt install "${APT_FLAGS[@]}" \
   fontconfig fonts-dejavu fonts-noto fonts-noto-color-emoji fonts-font-awesome \
   fonts-jetbrains-mono \
   feh picom rofi dunst libnotify-bin \
-  kitty fish maim slop brightnessctl playerctl pavucontrol \
+  kitty alacritty fish starship zoxide maim slop flameshot scrot brightnessctl playerctl pamixer pavucontrol \
   pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber \
   alsa-utils alsa-ucm-conf rtkit \
-  pcmanfm gvfs gvfs-backends udisks2 udiskie blueman xss-lock \
-  fastfetch btop htop glances ncdu duf jq fzf ripgrep fd-find pv \
+  pcmanfm gvfs gvfs-backends udisks2 udiskie blueman xss-lock pkexec polkitd lxpolkit \
+  fastfetch btop htop glances ncdu duf jq fzf ripgrep fd-find pv sshfs ntfs-3g \
   neovim vim micro \
-  mpv vlc cmus ffmpeg ffmpegthumbnailer gimp imagemagick sxiv \
-  arandr lxappearance unrar-free p7zip-full \
+  mpv vlc cmus kew ffmpeg ffmpegthumbnailer gimp imagemagick sxiv \
+  arandr lxappearance papirus-icon-theme adwaita-icon-theme unrar-free p7zip-full \
   nextcloud-desktop \
   upower acpi
 
@@ -265,6 +265,58 @@ if [[ "$IS_LAPTOP" -eq 1 ]]; then
 
   ok "Laptop power packages installed and enabled."
 fi
+
+# -----------------------------------------------------------------------------
+# Machine profile tuning
+# -----------------------------------------------------------------------------
+
+phase "Applying machine profile tuning"
+
+if [[ "$IS_LAPTOP" -eq 1 ]]; then
+  say "Applying conservative laptop defaults: balanced power, lower swap pressure and lid handling."
+
+  sudo tee /etc/sysctl.d/90-nirucon-laptop.conf >/dev/null <<'EOF'
+# NIRUCON laptop profile.
+vm.swappiness=20
+fs.inotify.max_user_watches=524288
+EOF
+
+  sudo mkdir -p /etc/systemd/logind.conf.d
+  sudo tee /etc/systemd/logind.conf.d/90-nirucon-laptop.conf >/dev/null <<'EOF'
+[Login]
+HandlePowerKey=poweroff
+HandleLidSwitch=suspend
+HandleLidSwitchExternalPower=ignore
+HandleLidSwitchDocked=ignore
+EOF
+
+  if command -v powerprofilesctl >/dev/null 2>&1; then
+    powerprofilesctl set balanced 2>/dev/null || true
+  fi
+
+  ok "Laptop tuning applied."
+else
+  say "Applying workstation defaults: performance-friendly profile without aggressive laptop power saving."
+
+  sudo tee /etc/sysctl.d/90-nirucon-workstation.conf >/dev/null <<'EOF'
+# NIRUCON workstation profile.
+vm.swappiness=10
+fs.inotify.max_user_watches=1048576
+EOF
+
+  sudo mkdir -p /etc/systemd/logind.conf.d
+  sudo tee /etc/systemd/logind.conf.d/90-nirucon-workstation.conf >/dev/null <<'EOF'
+[Login]
+HandlePowerKey=poweroff
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+HandleLidSwitchDocked=ignore
+EOF
+
+  ok "Workstation tuning applied."
+fi
+
+sudo sysctl --system >/dev/null || true
 
 # -----------------------------------------------------------------------------
 # Audio workstation packages and tuning
@@ -511,6 +563,98 @@ grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.profile" || \
 ok "Look and feel deployed."
 
 # -----------------------------------------------------------------------------
+# Debian-safe fish and terminal configuration
+# -----------------------------------------------------------------------------
+
+phase "Writing Debian-safe fish and terminal configuration"
+
+mkdir -p "$HOME/.config/fish" "$HOME/.config/alacritty" "$HOME/.config/kitty"
+
+if [[ -f "$HOME/.config/fish/config.fish" ]]; then
+  cp "$HOME/.config/fish/config.fish" "$HOME/.config/fish/config.fish.bak.$(date +%Y%m%d-%H%M%S)"
+fi
+
+cat > "$HOME/.config/fish/config.fish" <<'EOF'
+# NIRUCON Debian fish config.
+# Intentionally Debian-safe: no CachyOS, Arch, paru or yay assumptions.
+
+set -gx PATH $HOME/.local/bin /usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin $PATH
+set -gx EDITOR nvim
+set -gx VISUAL nvim
+set -gx PAGER less
+
+function fish_greeting
+end
+
+if command -q starship
+    starship init fish | source
+end
+
+if command -q zoxide
+    zoxide init fish | source
+end
+
+alias ll='ls -lah --color=auto'
+alias la='ls -A --color=auto'
+alias l='ls -CF --color=auto'
+alias grep='grep --color=auto'
+alias update='sudo apt update && sudo apt full-upgrade'
+alias cleanup='sudo apt autoremove --purge && sudo apt clean'
+alias ports='ss -tulpn'
+alias df='df -h'
+alias free='free -h'
+alias music='kew'
+EOF
+
+if [[ ! -f "$HOME/.config/starship.toml" ]]; then
+  cat > "$HOME/.config/starship.toml" <<'EOF'
+add_newline = false
+format = "$directory$git_branch$git_status$character"
+
+[directory]
+truncation_length = 4
+truncate_to_repo = false
+
+[character]
+success_symbol = "❯"
+error_symbol = "✖"
+EOF
+fi
+
+if [[ ! -f "$HOME/.config/alacritty/alacritty.toml" ]]; then
+  cat > "$HOME/.config/alacritty/alacritty.toml" <<'EOF'
+[window]
+padding = { x = 8, y = 8 }
+dynamic_padding = true
+opacity = 0.94
+
+[font]
+normal = { family = "JetBrainsMono Nerd Font", style = "Regular" }
+bold = { family = "JetBrainsMono Nerd Font", style = "Bold" }
+italic = { family = "JetBrainsMono Nerd Font", style = "Italic" }
+size = 11.0
+
+[terminal.shell]
+program = "/usr/bin/fish"
+EOF
+fi
+
+if [[ ! -f "$HOME/.config/kitty/kitty.conf" ]]; then
+  cat > "$HOME/.config/kitty/kitty.conf" <<'EOF'
+font_family JetBrainsMono Nerd Font
+bold_font auto
+italic_font auto
+bold_italic_font auto
+font_size 11.0
+background_opacity 0.94
+enable_audio_bell no
+shell /usr/bin/fish
+EOF
+fi
+
+ok "Debian-safe fish, Kitty and Alacritty configuration written."
+
+# -----------------------------------------------------------------------------
 # Nerd Font
 # -----------------------------------------------------------------------------
 
@@ -686,6 +830,9 @@ cat > "$XINITRC_DIR/20-lookandfeel.sh" <<'EOF'
 
 # Notification daemon.
 command -v dunst >/dev/null 2>&1 && ! pgrep -x dunst >/dev/null 2>&1 && dunst &
+
+# PolicyKit authentication agent for minimal window managers.
+command -v lxpolkit >/dev/null 2>&1 && ! pgrep -x lxpolkit >/dev/null 2>&1 && lxpolkit &
 
 # Compositor.
 if command -v picom >/dev/null 2>&1 && ! pgrep -x picom >/dev/null 2>&1; then
@@ -921,9 +1068,11 @@ echo
 echo "Desktop tools"
 echo "  fish:            $(command -v fish || echo missing)"
 echo "  kitty:           $(command -v kitty || echo missing)"
+echo "  alacritty:       $(command -v alacritty || echo missing)"
 echo "  rofi:            $(command -v rofi || echo missing)"
 echo "  picom:           $(command -v picom || echo missing)"
 echo "  dunst:           $(command -v dunst || echo missing)"
+echo "  lxpolkit:        $(command -v lxpolkit || echo missing)"
 echo "  xss-lock:        $(command -v xss-lock || echo missing)"
 echo "  NetworkManager:  $(systemctl is-enabled NetworkManager 2>/dev/null || echo unknown)"
 echo
@@ -932,10 +1081,14 @@ echo "Audio"
 echo "  PipeWire:        $(command -v pipewire || echo missing)"
 echo "  WirePlumber:     $(command -v wireplumber || echo missing)"
 echo "  pactl:           $(command -v pactl || echo missing)"
+echo "  pamixer:         $(command -v pamixer || echo missing)"
 echo
 
 echo "Fonts"
 echo "  Nerd Font:       $(fc-match 'JetBrainsMono Nerd Font' | head -1)"
+echo "  starship:        $(command -v starship || echo missing)"
+echo "  zoxide:          $(command -v zoxide || echo missing)"
+echo "  kew:             $(command -v kew || echo missing)"
 echo
 
 echo "Optional applications"
