@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm Postinstall v1.6.2
+# NIRUCON Debian 13 dwm Postinstall v2.0.0
 # =============================================================================
 #
 # Target:
@@ -12,7 +12,7 @@ IFS=$'\n\t'
 # Purpose:
 #   Install a clean, minimal, dwm-based X11 desktop on Debian with SDDM,
 #   NIRUCON suckless tools, look and feel files, fish shell, optional laptop
-#   packages and optional audio workstation optimization.
+#   packages and complete selectable audio profiles for Reaper/studio/Windows-VST use.
 #
 # Design goals:
 #   - Keep the system clean and stable.
@@ -125,6 +125,20 @@ ask_yes_no() {
   fi
 }
 
+backup_file() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    sudo cp -a "$file" "$file.bak.$(date +%Y%m%d-%H%M%S)"
+  fi
+}
+
+backup_user_file() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    cp -a "$file" "$file.bak.$(date +%Y%m%d-%H%M%S)"
+  fi
+}
+
 print_header() {
   clear || true
   echo
@@ -167,8 +181,16 @@ case "$MACHINE_CHOICE" in
     ;;
 esac
 
-INSTALL_AUDIO=0
+AUDIO_PROFILE="base"
+INSTALL_AUDIO_TOOLS=0
+APPLY_AUDIO_TUNING=0
+INSTALL_WINE_AUDIO=0
+INSTALL_YABRIDGE=0
+INSTALL_TOONTRACK_TWEAKS=0
+INSTALL_NAM_HELPER=0
 INSTALL_TAILSCALE=0
+INSTALL_SSH=0
+INSTALL_CUPS=0
 INSTALL_SIGNAL=0
 INSTALL_HELIUM=0
 SET_FISH_DEFAULT=0
@@ -176,8 +198,67 @@ PATCH_STATUSBAR=1
 PURGE_PLASMA=0
 
 echo
-ask_yes_no "Apply audio optimization and install Reaper/audio workstation tools?" "Y" && INSTALL_AUDIO=1
+echo "Select audio profile:"
+echo "  1) Base desktop audio only"
+echo "     PipeWire base from the normal install. Good for non-studio laptops."
+echo "  2) Reaper safe studio"
+echo "     Install studio tools and helper scripts, but preserve existing audio tuning."
+echo "  3) Reaper full studio"
+echo "     Install studio tools and apply realtime/system tuning. Best for new studio installs."
+echo "  4) Reaper full studio + Windows VST"
+echo "     Full studio profile plus Wine, Winetricks, yabridge and optional Toontrack tweaks."
+echo
+read -r -p "Audio choice [1/2/3/4, default 2]: " AUDIO_CHOICE
+AUDIO_CHOICE="${AUDIO_CHOICE:-2}"
+
+case "$AUDIO_CHOICE" in
+  1)
+    AUDIO_PROFILE="base"
+    INSTALL_AUDIO_TOOLS=0
+    APPLY_AUDIO_TUNING=0
+    ;;
+  2)
+    AUDIO_PROFILE="reaper-safe"
+    INSTALL_AUDIO_TOOLS=1
+    APPLY_AUDIO_TUNING=0
+    ;;
+  3)
+    AUDIO_PROFILE="reaper-full"
+    INSTALL_AUDIO_TOOLS=1
+    APPLY_AUDIO_TUNING=1
+    ;;
+  4)
+    AUDIO_PROFILE="reaper-full-windows-vst"
+    INSTALL_AUDIO_TOOLS=1
+    APPLY_AUDIO_TUNING=1
+    INSTALL_WINE_AUDIO=1
+    INSTALL_YABRIDGE=1
+    ;;
+  *)
+    fail "Invalid audio choice."
+    exit 1
+    ;;
+esac
+
+if [[ "$INSTALL_AUDIO_TOOLS" -eq 1 && "$INSTALL_WINE_AUDIO" -eq 0 ]]; then
+  ask_yes_no "Install Wine/Winetricks support for Windows VST experiments?" "N" && INSTALL_WINE_AUDIO=1 || INSTALL_WINE_AUDIO=0
+fi
+
+if [[ "$INSTALL_WINE_AUDIO" -eq 1 && "$INSTALL_YABRIDGE" -eq 0 ]]; then
+  ask_yes_no "Install yabridge from latest GitHub release?" "Y" && INSTALL_YABRIDGE=1 || INSTALL_YABRIDGE=0
+fi
+
+if [[ "$INSTALL_YABRIDGE" -eq 1 ]]; then
+  ask_yes_no "Apply optional Toontrack compatibility tweaks through winetricks?" "N" && INSTALL_TOONTRACK_TWEAKS=1 || INSTALL_TOONTRACK_TWEAKS=0
+fi
+
+if [[ "$INSTALL_AUDIO_TOOLS" -eq 1 ]]; then
+  ask_yes_no "Create NAM/Neural Amp Modeler helper notes?" "Y" && INSTALL_NAM_HELPER=1 || INSTALL_NAM_HELPER=0
+fi
+
 ask_yes_no "Install Tailscale?" "Y" && INSTALL_TAILSCALE=1
+ask_yes_no "Install OpenSSH server?" "N" && INSTALL_SSH=1 || INSTALL_SSH=0
+ask_yes_no "Install CUPS printer support?" "N" && INSTALL_CUPS=1 || INSTALL_CUPS=0
 ask_yes_no "Install Signal Desktop?" "Y" && INSTALL_SIGNAL=1
 ask_yes_no "Install Helium Browser from latest .deb release?" "Y" && INSTALL_HELIUM=1
 ask_yes_no "Set fish as default shell for $USER?" "N" && SET_FISH_DEFAULT=1
@@ -193,8 +274,14 @@ else
   echo "Machine type:      Workstation"
 fi
 
-echo "Audio optimization: $([[ "$INSTALL_AUDIO" -eq 1 ]] && echo yes || echo no)"
+echo "Audio profile:       $AUDIO_PROFILE"
+echo "Wine audio support:  $([[ "$INSTALL_WINE_AUDIO" -eq 1 ]] && echo yes || echo no)"
+echo "yabridge:            $([[ "$INSTALL_YABRIDGE" -eq 1 ]] && echo yes || echo no)"
+echo "Toontrack tweaks:    $([[ "$INSTALL_TOONTRACK_TWEAKS" -eq 1 ]] && echo yes || echo no)"
+echo "NAM helper:          $([[ "$INSTALL_NAM_HELPER" -eq 1 ]] && echo yes || echo no)"
 echo "Tailscale:          $([[ "$INSTALL_TAILSCALE" -eq 1 ]] && echo yes || echo no)"
+echo "OpenSSH server:     $([[ "$INSTALL_SSH" -eq 1 ]] && echo yes || echo no)"
+echo "CUPS printer:       $([[ "$INSTALL_CUPS" -eq 1 ]] && echo yes || echo no)"
 echo "Signal:             $([[ "$INSTALL_SIGNAL" -eq 1 ]] && echo yes || echo no)"
 echo "Helium:             $([[ "$INSTALL_HELIUM" -eq 1 ]] && echo yes || echo no)"
 echo "fish default shell: $([[ "$SET_FISH_DEFAULT" -eq 1 ]] && echo yes || echo no)"
@@ -244,6 +331,7 @@ sudo apt install "${APT_FLAGS[@]}" \
   alsa-utils alsa-ucm-conf rtkit \
   pcmanfm gvfs gvfs-backends udisks2 udiskie blueman xss-lock pkexec polkitd lxpolkit \
   fastfetch btop htop glances ncdu duf jq fzf ripgrep fd-find eza bat pv sshfs ntfs-3g \
+  lm-sensors smartmontools pciutils usbutils \
   neovim vim micro \
   mpv vlc cmus kew ffmpeg ffmpegthumbnailer gimp imagemagick sxiv \
   arandr lxappearance papirus-icon-theme adwaita-icon-theme unrar-free p7zip-full \
@@ -323,10 +411,28 @@ sudo sysctl --system >/dev/null || true
 # Audio workstation packages and tuning
 # -----------------------------------------------------------------------------
 
-if [[ "$INSTALL_AUDIO" -eq 1 ]]; then
-  phase "Installing audio workstation packages"
+if [[ "$INSTALL_AUDIO_TOOLS" -eq 1 ]]; then
+  phase "Installing Reaper/studio audio packages"
 
-  sudo apt install "${APT_FLAGS[@]}" \
+  note "This installs native Linux audio tools. Reaper itself is still installed manually from reaper.fm."
+
+  AUDIO_BACKUP_DIR="$HOME/.cache/nirucon-dwm-setup/audio-backup-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$AUDIO_BACKUP_DIR/user-config" "$AUDIO_BACKUP_DIR/etc"
+
+  say "Saving lightweight audio/Reaper configuration backup to: $AUDIO_BACKUP_DIR"
+  for d in "$HOME/.config/REAPER" "$HOME/.config/pipewire" "$HOME/.config/wireplumber" "$HOME/.config/yabridge"; do
+    if [[ -e "$d" ]]; then
+      rsync -a "$d" "$AUDIO_BACKUP_DIR/user-config/" 2>/dev/null || true
+    fi
+  done
+  sudo find /etc/security/limits.d /etc/sysctl.d -maxdepth 1 -type f \
+    \( -iname '*audio*' -o -iname '*pipewire*' -o -iname '*jack*' -o -iname '*nirucon*' \) \
+    -exec cp -a {} "$AUDIO_BACKUP_DIR/etc/" \; 2>/dev/null || true
+
+  # Avoid jackd2 debconf prompts during unattended postinstall.
+  echo "jackd2 jackd/tweak_rt_limits boolean true" | sudo debconf-set-selections 2>/dev/null || true
+
+  sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" \
     qpwgraph \
     jackd2 qjackctl \
     libasound2-plugins \
@@ -344,28 +450,80 @@ if [[ "$INSTALL_AUDIO" -eq 1 ]]; then
 
   sudo systemctl enable irqbalance
 
-  phase "Applying realtime audio configuration"
-
   say "Adding $USER to audio and video groups..."
   sudo usermod -aG audio,video "$USER" || true
 
-  say "Writing realtime limits to /etc/security/limits.d/audio.conf..."
-  sudo tee /etc/security/limits.d/audio.conf >/dev/null <<'EOF'
-# Realtime audio limits for low-latency audio work.
-# The user must be a member of the audio group.
-@audio   -  rtprio     98
-@audio   -  memlock    unlimited
-@audio   -  nice      -19
-EOF
+  if [[ "$INSTALL_WINE_AUDIO" -eq 1 ]]; then
+    phase "Installing Wine/Winetricks support for Windows VST"
 
-  say "Writing basic audio sysctl tuning..."
-  sudo tee /etc/sysctl.d/99-audio.conf >/dev/null <<'EOF'
-# Basic desktop/audio tuning.
-vm.swappiness=10
-fs.inotify.max_user_watches=524288
-EOF
+    sudo dpkg --add-architecture i386 || true
+    sudo apt update
+    sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" \
+      wine wine64 wine32 winetricks cabextract p7zip-full unzip \
+      vulkan-tools mesa-vulkan-drivers mesa-vulkan-drivers:i386
 
-  sudo sysctl --system >/dev/null || true
+    mkdir -p \
+      "$HOME/.wine" \
+      "$HOME/.vst" \
+      "$HOME/.vst3" \
+      "$HOME/.clap" \
+      "$HOME/.local/share/yabridge" \
+      "$HOME/.wine/drive_c/Program Files/VstPlugins" \
+      "$HOME/.wine/drive_c/Program Files/Common Files/VST3"
+
+    if [[ "$INSTALL_YABRIDGE" -eq 1 ]]; then
+      phase "Installing yabridge from latest GitHub release"
+
+      YABRIDGE_TMP="$(mktemp -d)"
+      YABRIDGE_URL="$(curl -fsSL https://api.github.com/repos/robbert-vdh/yabridge/releases/latest \
+        | grep browser_download_url \
+        | grep -E 'yabridge-[0-9].*\.tar\.gz' \
+        | grep -v 'source' \
+        | head -n1 \
+        | cut -d '"' -f4 || true)"
+
+      if [[ -n "${YABRIDGE_URL:-}" ]]; then
+        say "Downloading yabridge from: $YABRIDGE_URL"
+        wget -O "$YABRIDGE_TMP/yabridge.tar.gz" "$YABRIDGE_URL"
+        tar -xzf "$YABRIDGE_TMP/yabridge.tar.gz" -C "$YABRIDGE_TMP"
+        YABRIDGE_EXTRACTED="$(find "$YABRIDGE_TMP" -maxdepth 3 -type f -name yabridgectl -printf '%h\n' | head -n1 || true)"
+        if [[ -n "${YABRIDGE_EXTRACTED:-}" ]]; then
+          rsync -a "$YABRIDGE_EXTRACTED/" "$HOME/.local/share/yabridge/"
+          chmod +x "$HOME/.local/share/yabridge/yabridge" "$HOME/.local/share/yabridge/yabridgectl" 2>/dev/null || true
+          grep -qxF 'export PATH="$HOME/.local/share/yabridge:$PATH"' "$HOME/.profile" || \
+            echo 'export PATH="$HOME/.local/share/yabridge:$PATH"' >> "$HOME/.profile"
+          export PATH="$HOME/.local/share/yabridge:$PATH"
+          ok "yabridge installed to $HOME/.local/share/yabridge"
+        else
+          warn "Downloaded yabridge archive, but could not find yabridgectl inside it."
+        fi
+      else
+        warn "Could not resolve latest yabridge release URL."
+      fi
+      rm -rf "$YABRIDGE_TMP"
+    fi
+
+    if command -v yabridgectl >/dev/null 2>&1 || [[ -x "$HOME/.local/share/yabridge/yabridgectl" ]]; then
+      YCTL="$(command -v yabridgectl || echo "$HOME/.local/share/yabridge/yabridgectl")"
+      "$YCTL" add "$HOME/.vst" 2>/dev/null || true
+      "$YCTL" add "$HOME/.vst3" 2>/dev/null || true
+      "$YCTL" add "$HOME/.clap" 2>/dev/null || true
+      "$YCTL" add "$HOME/.wine/drive_c/Program Files/VstPlugins" 2>/dev/null || true
+      "$YCTL" add "$HOME/.wine/drive_c/Program Files/Common Files/VST3" 2>/dev/null || true
+      "$YCTL" sync 2>/dev/null || warn "yabridgectl sync failed or no Windows plugins were present yet."
+      ok "yabridge paths prepared."
+    fi
+
+    if [[ "$INSTALL_TOONTRACK_TWEAKS" -eq 1 ]]; then
+      phase "Applying optional Toontrack/Windows plugin compatibility tweaks"
+      warn "This can take a while and may open Wine/Winetricks dialogs."
+      WINEPREFIX="$HOME/.wine" winetricks -q corefonts gdiplus vcrun2019 2>/dev/null || \
+        warn "Some winetricks components failed. You can rerun manually: winetricks corefonts gdiplus vcrun2019"
+      note "dotnet48 is intentionally not forced. Install it manually only if a specific installer requires it."
+    fi
+  fi
+
+  phase "Creating audio helper scripts"
 
   mkdir -p "$LOCAL_BIN"
 
@@ -373,23 +531,199 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Switch CPU governor to performance mode for audio recording/mixing sessions.
-sudo cpupower frequency-set -g performance
-echo "CPU governor set to performance."
+# Studio mode for recording/mixing.
+# Requires linux-cpupower and sudo rights.
+if command -v powerprofilesctl >/dev/null 2>&1; then
+  powerprofilesctl set performance 2>/dev/null || true
+fi
+
+if command -v cpupower >/dev/null 2>&1; then
+  sudo cpupower frequency-set -g performance
+  echo "CPU governor set to performance."
+else
+  echo "cpupower missing. Install linux-cpupower."
+fi
 EOF
 
   cat > "$LOCAL_BIN/audio-balanced.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Switch CPU governor back to a balanced mode after audio work.
-sudo cpupower frequency-set -g schedutil 2>/dev/null || sudo cpupower frequency-set -g ondemand
-echo "CPU governor set to balanced/schedutil."
+# Balanced mode after audio work.
+if command -v powerprofilesctl >/dev/null 2>&1; then
+  powerprofilesctl set balanced 2>/dev/null || true
+fi
+
+if command -v cpupower >/dev/null 2>&1; then
+  sudo cpupower frequency-set -g schedutil 2>/dev/null || sudo cpupower frequency-set -g ondemand 2>/dev/null || true
+  echo "CPU governor set to balanced/schedutil when available."
+else
+  echo "cpupower missing."
+fi
 EOF
 
-  chmod +x "$LOCAL_BIN/audio-performance.sh" "$LOCAL_BIN/audio-balanced.sh"
+  cat > "$LOCAL_BIN/audio-status.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
 
-  ok "Audio workstation packages and tuning applied."
+echo "== User / groups =="
+id
+
+echo
+echo "== PipeWire services =="
+systemctl --user --no-pager status pipewire pipewire-pulse wireplumber 2>/dev/null | sed -n '1,80p' || true
+
+echo
+echo "== pactl info =="
+pactl info 2>/dev/null || true
+
+echo
+echo "== Audio sinks =="
+pactl list short sinks 2>/dev/null || true
+
+echo
+echo "== Audio sources =="
+pactl list short sources 2>/dev/null || true
+
+echo
+echo "== ALSA playback devices =="
+aplay -l 2>/dev/null || true
+
+echo
+echo "== ALSA capture devices =="
+arecord -l 2>/dev/null || true
+
+echo
+echo "== CPU governor =="
+if command -v cpupower >/dev/null 2>&1; then
+  cpupower frequency-info -p 2>/dev/null || true
+else
+  cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || true
+fi
+EOF
+
+  cat > "$LOCAL_BIN/reaper-audio-check.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "== Reaper audio quick check =="
+echo
+
+echo "1) Reaper config:"
+if [[ -d "$HOME/.config/REAPER" ]]; then
+  echo "   Found: $HOME/.config/REAPER"
+else
+  echo "   Missing: $HOME/.config/REAPER"
+fi
+
+echo
+
+echo "2) Native plugin folders:"
+for d in "$HOME/.vst" "$HOME/.vst3" "$HOME/.clap" "$HOME/.lv2" "/usr/lib/vst" "/usr/lib/vst3" "/usr/lib/lv2"; do
+  [[ -d "$d" ]] && echo "   Found: $d"
+done
+
+echo
+
+echo "3) Wine/yabridge hints:"
+command -v wine >/dev/null 2>&1 && echo "   wine: $(command -v wine)" || echo "   wine: missing"
+if command -v yabridgectl >/dev/null 2>&1; then
+  echo "   yabridgectl: $(command -v yabridgectl)"
+elif [[ -x "$HOME/.local/share/yabridge/yabridgectl" ]]; then
+  echo "   yabridgectl: $HOME/.local/share/yabridge/yabridgectl"
+else
+  echo "   yabridgectl: missing"
+fi
+if [[ -d "$HOME/.wine/drive_c/Program Files/Toontrack" ]]; then
+  echo "   Toontrack folder: found"
+fi
+
+echo
+
+echo "4) Recommended Reaper audio backend on this setup:"
+echo "   PipeWire JACK usually works best: Audio system = JACK"
+echo "   Use qpwgraph to inspect routing."
+EOF
+
+  cat > "$LOCAL_BIN/yabridge-sync.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="$HOME/.local/share/yabridge:$PATH"
+
+if ! command -v yabridgectl >/dev/null 2>&1; then
+  echo "yabridgectl not found. Install yabridge first."
+  exit 1
+fi
+
+mkdir -p \
+  "$HOME/.vst" \
+  "$HOME/.vst3" \
+  "$HOME/.clap" \
+  "$HOME/.wine/drive_c/Program Files/VstPlugins" \
+  "$HOME/.wine/drive_c/Program Files/Common Files/VST3"
+
+yabridgectl add "$HOME/.vst" || true
+yabridgectl add "$HOME/.vst3" || true
+yabridgectl add "$HOME/.clap" || true
+yabridgectl add "$HOME/.wine/drive_c/Program Files/VstPlugins" || true
+yabridgectl add "$HOME/.wine/drive_c/Program Files/Common Files/VST3" || true
+yabridgectl sync
+EOF
+
+  if [[ "$INSTALL_NAM_HELPER" -eq 1 ]]; then
+    cat > "$LOCAL_BIN/nam-notes.sh" <<'EOF'
+#!/usr/bin/env bash
+cat <<'TXT'
+NAM / Neural Amp Modeler notes for Debian/Reaper:
+
+1) Prefer native Linux builds/plugins when available.
+2) Put native plugins in one of these folders:
+   ~/.vst3
+   ~/.clap
+   ~/.lv2
+3) In REAPER: Options > Preferences > Plug-ins > VST > Re-scan.
+4) For Windows NAM-related plugins, place them under:
+   ~/.wine/drive_c/Program Files/Common Files/VST3
+   then run: yabridgectl sync
+TXT
+EOF
+    chmod +x "$LOCAL_BIN/nam-notes.sh"
+  fi
+
+  chmod +x "$LOCAL_BIN/audio-performance.sh" "$LOCAL_BIN/audio-balanced.sh" "$LOCAL_BIN/audio-status.sh" "$LOCAL_BIN/reaper-audio-check.sh" "$LOCAL_BIN/yabridge-sync.sh"
+
+  ok "Audio helper scripts created."
+
+  if [[ "$APPLY_AUDIO_TUNING" -eq 1 ]]; then
+    phase "Applying realtime audio tuning"
+
+    say "Writing realtime limits to /etc/security/limits.d/99-nirucon-audio.conf..."
+    backup_file /etc/security/limits.d/99-nirucon-audio.conf
+    sudo tee /etc/security/limits.d/99-nirucon-audio.conf >/dev/null <<'EOF'
+# NIRUCON realtime audio limits for low-latency audio work.
+# The user must be a member of the audio group.
+@audio   -  rtprio     98
+@audio   -  memlock    unlimited
+@audio   -  nice      -19
+EOF
+
+    say "Writing basic audio sysctl tuning to /etc/sysctl.d/99-nirucon-audio.conf..."
+    backup_file /etc/sysctl.d/99-nirucon-audio.conf
+    sudo tee /etc/sysctl.d/99-nirucon-audio.conf >/dev/null <<'EOF'
+# NIRUCON desktop/audio tuning.
+vm.swappiness=10
+fs.inotify.max_user_watches=1048576
+EOF
+
+    sudo sysctl --system >/dev/null || true
+
+    ok "Realtime audio tuning applied."
+  else
+    note "Audio profile is safe mode: existing realtime/sysctl tuning was preserved."
+  fi
+
+  ok "Reaper/studio audio package phase completed."
 fi
 
 # -----------------------------------------------------------------------------
@@ -610,7 +944,7 @@ cat > "$HOME/.config/fish/config.fish" <<'EOF'
 set -g fish_greeting ""
 
 # Environment.
-fish_add_path -g $HOME/.local/bin /usr/local/bin /usr/local/sbin /usr/bin /usr/sbin /bin /sbin
+fish_add_path -g $HOME/.local/bin $HOME/.local/share/yabridge /usr/local/bin /usr/local/sbin /usr/bin /usr/sbin /bin /sbin
 set -gx EDITOR nvim
 set -gx VISUAL nvim
 set -gx PAGER less
@@ -1044,6 +1378,25 @@ chmod +x "$HOME/.xinitrc"
 ok ".xinitrc fallback created."
 
 # -----------------------------------------------------------------------------
+# Optional system services
+# -----------------------------------------------------------------------------
+
+if [[ "$INSTALL_SSH" -eq 1 ]]; then
+  phase "Installing OpenSSH server"
+  sudo apt install "${APT_FLAGS[@]}" openssh-server
+  sudo systemctl enable --now ssh
+  ok "OpenSSH server installed and enabled."
+fi
+
+if [[ "$INSTALL_CUPS" -eq 1 ]]; then
+  phase "Installing CUPS printer support"
+  sudo apt install "${APT_FLAGS[@]}" cups system-config-printer printer-driver-gutenprint
+  sudo systemctl enable --now cups
+  sudo usermod -aG lpadmin "$USER" || true
+  ok "CUPS installed and enabled."
+fi
+
+# -----------------------------------------------------------------------------
 # Optional applications
 # -----------------------------------------------------------------------------
 
@@ -1192,6 +1545,12 @@ echo "  PipeWire:        $(command -v pipewire || echo missing)"
 echo "  WirePlumber:     $(command -v wireplumber || echo missing)"
 echo "  pactl:           $(command -v pactl || echo missing)"
 echo "  pamixer:         $(command -v pamixer || echo missing)"
+echo "  qpwgraph:        $(command -v qpwgraph || echo optional/missing)"
+echo "  qjackctl:        $(command -v qjackctl || echo optional/missing)"
+echo "  audio-status:    $(command -v audio-status.sh || echo optional/missing)"
+echo "  Wine:            $(command -v wine || echo optional/missing)"
+echo "  yabridgectl:     $(command -v yabridgectl || [[ -x "$HOME/.local/share/yabridge/yabridgectl" ]] && echo "$HOME/.local/share/yabridge/yabridgectl" || echo optional/missing)"
+echo "  UMC1820:         $(lsusb 2>/dev/null | grep -qi "UMC1820\|Behringer" && echo detected || echo not-detected)"
 echo
 
 echo "Fonts"
@@ -1208,6 +1567,8 @@ echo "Optional applications"
 echo "  Helium:          $(command -v helium-browser || command -v helium || echo optional/missing)"
 echo "  Signal:          $(command -v signal-desktop || echo optional/missing)"
 echo "  Tailscale:       $(command -v tailscale || echo optional/missing)"
+echo "  SSH server:      $(systemctl is-enabled ssh 2>/dev/null || echo optional/missing)"
+echo "  CUPS:            $(systemctl is-enabled cups 2>/dev/null || echo optional/missing)"
 echo
 
 echo "Plasma/KDE check"
@@ -1223,9 +1584,9 @@ else
   warn "NIRU Noir SDDM theme directory is missing."
 fi
 
-if [[ "$INSTALL_AUDIO" -eq 1 ]]; then
-  ok "Audio profile installed."
-  warn "You must log out/reboot before audio group membership is active."
+if [[ "$INSTALL_AUDIO_TOOLS" -eq 1 ]]; then
+  ok "Audio profile installed: $AUDIO_PROFILE"
+  warn "You must log out/reboot before audio/video group membership is active."
 fi
 
 if [[ "$IS_LAPTOP" -eq 1 ]]; then
@@ -1258,10 +1619,14 @@ echo "  5) Test lock screen:"
 echo "       slock"
 echo
 
-if [[ "$INSTALL_AUDIO" -eq 1 ]]; then
+if [[ "$INSTALL_AUDIO_TOOLS" -eq 1 ]]; then
   echo "Audio workstation commands:"
-  echo "  audio-performance.sh   # use before recording/mixing"
-  echo "  audio-balanced.sh      # use after audio work"
+  echo "  audio-status.sh         # inspect PipeWire/JACK/ALSA state"
+  echo "  reaper-audio-check.sh   # quick Reaper/plugin environment check"
+  echo "  audio-performance.sh    # use before recording/mixing"
+  echo "  audio-balanced.sh       # use after audio work"
+  echo "  yabridge-sync.sh        # sync Windows VST paths when yabridge is installed"
+  [[ "$INSTALL_NAM_HELPER" -eq 1 ]] && echo "  nam-notes.sh            # NAM/Neural Amp Modeler notes" || true
   echo
 fi
 
@@ -1273,5 +1638,6 @@ fi
 
 echo "Reaper:"
 echo "  Download and install the Linux build from reaper.fm manually."
+echo "  Recommended first test: run audio-status.sh, open qpwgraph, then set Reaper audio system to JACK/PipeWire JACK."
 echo
 ok "Done."
