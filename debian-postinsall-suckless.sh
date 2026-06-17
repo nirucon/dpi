@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm Postinstall v1.6.1
+# NIRUCON Debian 13 dwm Postinstall v1.6.2
 # =============================================================================
 #
 # Target:
@@ -173,7 +173,7 @@ INSTALL_SIGNAL=0
 INSTALL_HELIUM=0
 SET_FISH_DEFAULT=0
 PATCH_STATUSBAR=1
-PURGE_PLASMA=1
+PURGE_PLASMA=0
 
 echo
 ask_yes_no "Apply audio optimization and install Reaper/audio workstation tools?" "Y" && INSTALL_AUDIO=1
@@ -182,6 +182,7 @@ ask_yes_no "Install Signal Desktop?" "Y" && INSTALL_SIGNAL=1
 ask_yes_no "Install Helium Browser from latest .deb release?" "Y" && INSTALL_HELIUM=1
 ask_yes_no "Set fish as default shell for $USER?" "N" && SET_FISH_DEFAULT=1
 ask_yes_no "Patch dwm-status.sh for Debian?" "Y" && PATCH_STATUSBAR=1 || PATCH_STATUSBAR=0
+ask_yes_no "Remove Plasma/KDE packages if present?" "N" && PURGE_PLASMA=1 || PURGE_PLASMA=0
 
 echo
 phase "Selected configuration"
@@ -198,7 +199,7 @@ echo "Signal:             $([[ "$INSTALL_SIGNAL" -eq 1 ]] && echo yes || echo no
 echo "Helium:             $([[ "$INSTALL_HELIUM" -eq 1 ]] && echo yes || echo no)"
 echo "fish default shell: $([[ "$SET_FISH_DEFAULT" -eq 1 ]] && echo yes || echo no)"
 echo "Patch statusbar:    $([[ "$PATCH_STATUSBAR" -eq 1 ]] && echo yes || echo no)"
-echo "Purge Plasma/KDE:   yes, but keep SDDM"
+echo "Purge Plasma/KDE:   $([[ "$PURGE_PLASMA" -eq 1 ]] && echo yes || echo no)"
 echo
 
 ask_yes_no "Continue with installation?" "Y" || {
@@ -563,6 +564,33 @@ grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.profile" || \
 ok "Look and feel deployed."
 
 # -----------------------------------------------------------------------------
+# Remove non-Debian shell remnants from imported look and feel
+# -----------------------------------------------------------------------------
+
+phase "Removing non-Debian fish remnants"
+
+mkdir -p "$HOME/.config/fish"
+
+# Old Arch/CachyOS fish snippets can be imported by the look-and-feel repo and
+# then loaded automatically by fish from conf.d/functions. Back them up and
+# remove only the offending lines/files instead of deleting the whole fish tree.
+if [[ -d "$HOME/.config/fish" ]]; then
+  find "$HOME/.config/fish" -type f     \( -iname '*cachy*' -o -iname '*arch*' -o -iname '*paru*' -o -iname '*yay*' \)     -print0 2>/dev/null | while IFS= read -r -d '' f; do
+      cp "$f" "$f.bak.$(date +%Y%m%d-%H%M%S)"
+      rm -f "$f"
+      warn "Removed non-Debian fish file: $f"
+    done
+
+  grep -RIlE 'cachyos|/usr/share/cachyos|paru|yay|pacman -|pacman\s' "$HOME/.config/fish" 2>/dev/null | while IFS= read -r f; do
+    cp "$f" "$f.bak.$(date +%Y%m%d-%H%M%S)"
+    sed -i -E '/cachyos|\/usr\/share\/cachyos|paru|yay|pacman -|pacman[[:space:]]/d' "$f"
+    warn "Sanitized non-Debian references in: $f"
+  done
+fi
+
+ok "Fish remnants cleaned."
+
+# -----------------------------------------------------------------------------
 # Debian-safe fish and terminal configuration
 # -----------------------------------------------------------------------------
 
@@ -618,10 +646,10 @@ end
 # Modern cat, Debian may expose bat as batcat.
 if command -q batcat
     alias cat='batcat --style=plain --paging=never'
-    alias less='batcat --paging=always'
+    alias batp='batcat --paging=always'
 else if command -q bat
     alias cat='bat --style=plain --paging=never'
-    alias less='bat --paging=always'
+    alias batp='bat --paging=always'
 end
 
 # Debian's fd binary is usually fdfind.
