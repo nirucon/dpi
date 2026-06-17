@@ -563,26 +563,34 @@ else
   git clone "$SDDM_THEME_REPO" "$SDDM_THEME_CACHE"
 fi
 
-if [[ ! -f "$SDDM_THEME_CACHE/metadata.desktop" ]]; then
-  fail "metadata.desktop is missing in the SDDM theme repository."
+# The actual SDDM theme files are stored in the repo subdirectory "theme".
+if [[ -d "$SDDM_THEME_CACHE/theme" ]]; then
+  SDDM_THEME_SOURCE="$SDDM_THEME_CACHE/theme"
+else
+  SDDM_THEME_SOURCE="$SDDM_THEME_CACHE"
+fi
+
+if [[ ! -f "$SDDM_THEME_SOURCE/metadata.desktop" ]]; then
+  fail "metadata.desktop is missing in the SDDM theme source: $SDDM_THEME_SOURCE"
   exit 1
 fi
 
-if ! grep -q '^MainScript=Main.qml' "$SDDM_THEME_CACHE/metadata.desktop"; then
+if [[ ! -f "$SDDM_THEME_SOURCE/Main.qml" ]]; then
+  fail "Main.qml is missing in the SDDM theme source: $SDDM_THEME_SOURCE"
+  exit 1
+fi
+
+if ! grep -q '^MainScript=Main.qml' "$SDDM_THEME_SOURCE/metadata.desktop"; then
   fail "SDDM theme metadata.desktop does not define MainScript=Main.qml."
   exit 1
 fi
 
-if ! grep -q '^Theme-API=2.0' "$SDDM_THEME_CACHE/metadata.desktop"; then
-  warn "Theme-API=2.0 not found in metadata.desktop."
-fi
-
-if ! grep -q '^Theme-Id=niru-noir' "$SDDM_THEME_CACHE/metadata.desktop"; then
+if ! grep -q '^Theme-Id=niru-noir' "$SDDM_THEME_SOURCE/metadata.desktop"; then
   warn "Theme-Id=niru-noir not found. Installing as niru-noir anyway."
 fi
 
 sudo mkdir -p "/usr/share/sddm/themes/$SDDM_THEME_ID"
-sudo rsync -a --delete "$SDDM_THEME_CACHE/" "/usr/share/sddm/themes/$SDDM_THEME_ID/"
+sudo rsync -a --delete "$SDDM_THEME_SOURCE/" "/usr/share/sddm/themes/$SDDM_THEME_ID/"
 sudo chown -R root:root "/usr/share/sddm/themes/$SDDM_THEME_ID"
 
 ok "SDDM theme installed to /usr/share/sddm/themes/$SDDM_THEME_ID"
