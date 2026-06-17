@@ -1009,5 +1009,3 @@ echo "Reaper:"
 echo "  Download and install the Linux build from reaper.fm manually."
 echo
 ok "Done."
-
-Kör helst från en ren Debian-installation utan Plasma. Om Plasma redan finns installerat kommer skriptet försöka rensa bort det, men behålla SDDM.
