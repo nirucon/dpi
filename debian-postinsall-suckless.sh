@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm Postinstall v1.6.0
+# NIRUCON Debian 13 dwm Postinstall v1.6.1
 # =============================================================================
 #
 # Target:
@@ -242,7 +242,7 @@ sudo apt install "${APT_FLAGS[@]}" \
   pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber \
   alsa-utils alsa-ucm-conf rtkit \
   pcmanfm gvfs gvfs-backends udisks2 udiskie blueman xss-lock pkexec polkitd lxpolkit \
-  fastfetch btop htop glances ncdu duf jq fzf ripgrep fd-find pv sshfs ntfs-3g \
+  fastfetch btop htop glances ncdu duf jq fzf ripgrep fd-find eza bat pv sshfs ntfs-3g \
   neovim vim micro \
   mpv vlc cmus kew ffmpeg ffmpegthumbnailer gimp imagemagick sxiv \
   arandr lxappearance papirus-icon-theme adwaita-icon-theme unrar-free p7zip-full \
@@ -576,48 +576,111 @@ fi
 
 cat > "$HOME/.config/fish/config.fish" <<'EOF'
 # NIRUCON Debian fish config.
-# Intentionally Debian-safe: no CachyOS, Arch, paru or yay assumptions.
+# Debian-safe: no CachyOS, Arch, paru or yay assumptions.
 
-set -gx PATH $HOME/.local/bin /usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin $PATH
+# No default Fish welcome/help text.
+set -g fish_greeting ""
+
+# Environment.
+fish_add_path -g $HOME/.local/bin /usr/local/bin /usr/local/sbin /usr/bin /usr/sbin /bin /sbin
 set -gx EDITOR nvim
 set -gx VISUAL nvim
 set -gx PAGER less
+set -gx MANPAGER "less -R"
 
-function fish_greeting
-end
+# Clean terminal behaviour.
+set -gx LESS "-R --use-color -Dd+r -Du+b"
+set -gx BAT_THEME "base16"
 
+# Prompt.
 if command -q starship
     starship init fish | source
 end
 
+# Smart cd.
 if command -q zoxide
     zoxide init fish | source
 end
 
-alias ll='ls -lah --color=auto'
-alias la='ls -A --color=auto'
-alias l='ls -CF --color=auto'
+# Modern ls, with safe fallback.
+if command -q eza
+    alias ls='eza --icons=auto --group-directories-first'
+    alias ll='eza -lah --icons=auto --group-directories-first --git'
+    alias la='eza -a --icons=auto --group-directories-first'
+    alias lt='eza --tree --icons=auto --level=2'
+    alias tree='eza --tree --icons=auto'
+else
+    alias ll='ls -lah --color=auto'
+    alias la='ls -A --color=auto'
+    alias l='ls -CF --color=auto'
+end
+
+# Modern cat, Debian may expose bat as batcat.
+if command -q batcat
+    alias cat='batcat --style=plain --paging=never'
+    alias less='batcat --paging=always'
+else if command -q bat
+    alias cat='bat --style=plain --paging=never'
+    alias less='bat --paging=always'
+end
+
+# Debian's fd binary is usually fdfind.
+if command -q fdfind
+    alias fd='fdfind'
+end
+
+# Useful shortcuts.
 alias grep='grep --color=auto'
-alias update='sudo apt update && sudo apt full-upgrade'
-alias cleanup='sudo apt autoremove --purge && sudo apt clean'
+alias update='sudo apt update && sudo apt full-upgrade -y'
+alias cleanup='sudo apt autoremove --purge -y && sudo apt clean'
 alias ports='ss -tulpn'
 alias df='df -h'
 alias free='free -h'
 alias music='kew'
+alias gs='git status'
+alias gp='git pull'
+alias gcm='git commit -m'
+
+# Optional: show system info manually with "ff".
+if command -q fastfetch
+    alias ff='fastfetch'
+end
+
+# Key bindings and fzf integration.
+if status is-interactive
+    if command -q fzf
+        fzf --fish | source 2>/dev/null
+    end
+end
 EOF
 
 if [[ ! -f "$HOME/.config/starship.toml" ]]; then
   cat > "$HOME/.config/starship.toml" <<'EOF'
 add_newline = false
-format = "$directory$git_branch$git_status$character"
+format = "$directory$git_branch$git_status$cmd_duration$line_break$character"
 
 [directory]
 truncation_length = 4
 truncate_to_repo = false
+style = "bold cyan"
+
+[git_branch]
+format = "[$symbol$branch]($style) "
+symbol = " "
+style = "bold purple"
+
+[git_status]
+format = "[$all_status$ahead_behind]($style) "
+style = "bold red"
+
+[cmd_duration]
+min_time = 2000
+format = "[$duration]($style) "
+style = "yellow"
 
 [character]
-success_symbol = "❯"
-error_symbol = "✖"
+success_symbol = "[❯](bold green)"
+error_symbol = "[✖](bold red)"
 EOF
 fi
 
@@ -641,15 +704,38 @@ fi
 
 if [[ ! -f "$HOME/.config/kitty/kitty.conf" ]]; then
   cat > "$HOME/.config/kitty/kitty.conf" <<'EOF'
+# NIRUCON Kitty config for Debian/dwm.
+
 font_family JetBrainsMono Nerd Font
 bold_font auto
 italic_font auto
 bold_italic_font auto
 font_size 11.0
-background_opacity 0.94
-enable_audio_bell no
+
 shell /usr/bin/fish
+
+scrollback_lines 50000
+enable_audio_bell no
+confirm_os_window_close 0
+
+background_opacity 0.94
+dynamic_background_opacity yes
+window_padding_width 8
+
+copy_on_select clipboard
+strip_trailing_spaces smart
+
+cursor_shape beam
+cursor_blink_interval 0.5
+
+tab_bar_edge bottom
+tab_bar_style powerline
 EOF
+fi
+
+# Also remove the Fish greeting at universal-variable level for existing users.
+if command -v fish >/dev/null 2>&1; then
+  fish -c 'set -U fish_greeting ""' 2>/dev/null || true
 fi
 
 ok "Debian-safe fish, Kitty and Alacritty configuration written."
@@ -756,8 +842,6 @@ export XDG_CURRENT_DESKTOP=dwm
 export DESKTOP_SESSION=dwm
 
 [[ -r "$HOME/.profile" ]] && . "$HOME/.profile"
-[[ -r "$HOME/.bash_profile" ]] && . "$HOME/.bash_profile"
-[[ -r "$HOME/.bashrc" ]] && . "$HOME/.bashrc"
 
 if command -v xrdb >/dev/null 2>&1 && [[ -r "$HOME/.Xresources" ]]; then
   xrdb -merge "$HOME/.Xresources"
@@ -915,8 +999,6 @@ export XDG_CURRENT_DESKTOP=dwm
 export DESKTOP_SESSION=dwm
 
 [[ -r "$HOME/.profile" ]] && . "$HOME/.profile"
-[[ -r "$HOME/.bash_profile" ]] && . "$HOME/.bash_profile"
-[[ -r "$HOME/.bashrc" ]] && . "$HOME/.bashrc"
 
 if command -v xrdb >/dev/null 2>&1 && [[ -r "$HOME/.Xresources" ]]; then
   xrdb -merge "$HOME/.Xresources"
@@ -1088,6 +1170,9 @@ echo "Fonts"
 echo "  Nerd Font:       $(fc-match 'JetBrainsMono Nerd Font' | head -1)"
 echo "  starship:        $(command -v starship || echo missing)"
 echo "  zoxide:          $(command -v zoxide || echo missing)"
+echo "  eza:             $(command -v eza || echo missing)"
+echo "  bat/batcat:      $(command -v batcat || command -v bat || echo missing)"
+echo "  fzf:             $(command -v fzf || echo missing)"
 echo "  kew:             $(command -v kew || echo missing)"
 echo
 
