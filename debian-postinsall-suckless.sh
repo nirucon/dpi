@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm Postinstall v2.0.0
+# NIRUCON Debian 13 dwm Postinstall v2.0.1
 # =============================================================================
 #
 # Target:
@@ -454,13 +454,42 @@ if [[ "$INSTALL_AUDIO_TOOLS" -eq 1 ]]; then
   sudo usermod -aG audio,video "$USER" || true
 
   if [[ "$INSTALL_WINE_AUDIO" -eq 1 ]]; then
-    phase "Installing Wine/Winetricks support for Windows VST"
+    phase "Installing Wine support for Windows VST"
 
     sudo dpkg --add-architecture i386 || true
     sudo apt update
-    sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" \
-      wine wine64 wine32 winetricks cabextract p7zip-full unzip \
-      vulkan-tools mesa-vulkan-drivers mesa-vulkan-drivers:i386
+
+    # Some Debian installations do not expose winetricks through the active APT
+    # sources. Wine itself should not fail just because winetricks is unavailable.
+    # Try the full Wine/Vulkan set first, then fall back to a smaller safe set.
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" \
+      wine wine64 wine32 cabextract p7zip-full unzip \
+      vulkan-tools mesa-vulkan-drivers mesa-vulkan-drivers:i386; then
+      warn "Full Wine/Vulkan package set failed. Retrying with a smaller safe Wine set."
+      sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" \
+        wine wine64 cabextract p7zip-full unzip || \
+        warn "Wine installation failed. Windows VST support may be incomplete."
+    fi
+
+    phase "Installing Winetricks if available"
+
+    mkdir -p "$LOCAL_BIN"
+
+    if command -v winetricks >/dev/null 2>&1; then
+      ok "winetricks already installed: $(command -v winetricks)"
+    elif apt-cache policy winetricks 2>/dev/null | grep -q 'Candidate: [^()]'; then
+      sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" winetricks || \
+        warn "APT winetricks installation failed. Continuing without winetricks."
+    else
+      warn "winetricks has no APT candidate in the active Debian repositories. Trying upstream script fallback."
+      if curl -fsSL -o "$LOCAL_BIN/winetricks" "https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks"; then
+        chmod +x "$LOCAL_BIN/winetricks"
+        export PATH="$LOCAL_BIN:$PATH"
+        ok "winetricks installed to $LOCAL_BIN/winetricks"
+      else
+        warn "Could not download winetricks. Continuing without Toontrack tweaks."
+      fi
+    fi
 
     mkdir -p \
       "$HOME/.wine" \
@@ -516,10 +545,14 @@ if [[ "$INSTALL_AUDIO_TOOLS" -eq 1 ]]; then
 
     if [[ "$INSTALL_TOONTRACK_TWEAKS" -eq 1 ]]; then
       phase "Applying optional Toontrack/Windows plugin compatibility tweaks"
-      warn "This can take a while and may open Wine/Winetricks dialogs."
-      WINEPREFIX="$HOME/.wine" winetricks -q corefonts gdiplus vcrun2019 2>/dev/null || \
-        warn "Some winetricks components failed. You can rerun manually: winetricks corefonts gdiplus vcrun2019"
-      note "dotnet48 is intentionally not forced. Install it manually only if a specific installer requires it."
+      if command -v winetricks >/dev/null 2>&1; then
+        warn "This can take a while and may open Wine/Winetricks dialogs."
+        WINEPREFIX="$HOME/.wine" winetricks -q corefonts gdiplus vcrun2019 2>/dev/null || \
+          warn "Some winetricks components failed. You can rerun manually: winetricks corefonts gdiplus vcrun2019"
+        note "dotnet48 is intentionally not forced. Install it manually only if a specific installer requires it."
+      else
+        warn "Toontrack tweaks skipped because winetricks is not installed."
+      fi
     fi
   fi
 
@@ -1549,7 +1582,13 @@ echo "  qpwgraph:        $(command -v qpwgraph || echo optional/missing)"
 echo "  qjackctl:        $(command -v qjackctl || echo optional/missing)"
 echo "  audio-status:    $(command -v audio-status.sh || echo optional/missing)"
 echo "  Wine:            $(command -v wine || echo optional/missing)"
-echo "  yabridgectl:     $(command -v yabridgectl || [[ -x "$HOME/.local/share/yabridge/yabridgectl" ]] && echo "$HOME/.local/share/yabridge/yabridgectl" || echo optional/missing)"
+if command -v yabridgectl >/dev/null 2>&1; then
+  echo "  yabridgectl:     $(command -v yabridgectl)"
+elif [[ -x "$HOME/.local/share/yabridge/yabridgectl" ]]; then
+  echo "  yabridgectl:     $HOME/.local/share/yabridge/yabridgectl"
+else
+  echo "  yabridgectl:     optional/missing"
+fi
 echo "  UMC1820:         $(lsusb 2>/dev/null | grep -qi "UMC1820\|Behringer" && echo detected || echo not-detected)"
 echo
 
