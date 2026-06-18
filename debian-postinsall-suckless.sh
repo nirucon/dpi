@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm Postinstall v2.0.1
+# NIRUCON Debian 13 dwm Postinstall v2.1.0
 # =============================================================================
 #
 # Target:
@@ -12,7 +12,8 @@ IFS=$'\n\t'
 # Purpose:
 #   Install a clean, minimal, dwm-based X11 desktop on Debian with SDDM,
 #   NIRUCON suckless tools, look and feel files, fish shell, optional laptop
-#   packages and complete selectable audio profiles for Reaper/studio/Windows-VST use.
+#   packages and complete selectable audio profiles for Reaper/studio/Windows-VST use,
+#   plus an integrated NIRU Noir Fish/Kitty/Starship terminal profile.
 #
 # Design goals:
 #   - Keep the system clean and stable.
@@ -958,34 +959,59 @@ fi
 ok "Fish remnants cleaned."
 
 # -----------------------------------------------------------------------------
-# Debian-safe fish and terminal configuration
+# Integrated NIRU Noir fish and terminal configuration
 # -----------------------------------------------------------------------------
 
-phase "Writing Debian-safe fish and terminal configuration"
+phase "Writing integrated NIRU Noir fish and terminal configuration"
 
-mkdir -p "$HOME/.config/fish" "$HOME/.config/alacritty" "$HOME/.config/kitty"
+mkdir -p "$HOME/.config/fish" "$HOME/.config/alacritty" "$HOME/.config/kitty" "$HOME/.config/bat"
 
-if [[ -f "$HOME/.config/fish/config.fish" ]]; then
-  cp "$HOME/.config/fish/config.fish" "$HOME/.config/fish/config.fish.bak.$(date +%Y%m%d-%H%M%S)"
-fi
+backup_user_file "$HOME/.config/fish/config.fish"
+backup_user_file "$HOME/.config/starship.toml"
+backup_user_file "$HOME/.config/kitty/kitty.conf"
+backup_user_file "$HOME/.config/alacritty/alacritty.toml"
+backup_user_file "$HOME/.config/bat/config"
 
 cat > "$HOME/.config/fish/config.fish" <<'EOF'
-# NIRUCON Debian fish config.
-# Debian-safe: no CachyOS, Arch, paru or yay assumptions.
+# ~/.config/fish/config.fish
+# NIRUCON Debian fish config with integrated NIRU Noir terminal profile.
+# Debian-safe: no CachyOS, Arch, pacman, paru or yay assumptions.
 
 # No default Fish welcome/help text.
 set -g fish_greeting ""
 
-# Environment.
+# PATH.
 fish_add_path -g $HOME/.local/bin $HOME/.local/share/yabridge /usr/local/bin /usr/local/sbin /usr/bin /usr/sbin /bin /sbin
+
+# Editor/tools.
 set -gx EDITOR nvim
 set -gx VISUAL nvim
 set -gx PAGER less
 set -gx MANPAGER "less -R"
-
-# Clean terminal behaviour.
 set -gx LESS "-R --use-color -Dd+r -Du+b"
-set -gx BAT_THEME "base16"
+set -gx BAT_THEME "TwoDark"
+
+# NIRU Noir / Fish colors.
+if status is-interactive
+    set fish_color_normal d6d1c4
+    set fish_color_command c8b46a
+    set fish_color_keyword c8b46a
+    set fish_color_param e0ddd2
+    set fish_color_quote b8ad8a
+    set fish_color_redirection a39a7a
+    set fish_color_end 8f8f8f
+    set fish_color_error 9a5a4f
+    set fish_color_operator c8b46a
+    set fish_color_escape d6c27a
+    set fish_color_autosuggestion 666666
+    set fish_color_comment 666666
+    set fish_color_selection --background=35322a
+    set fish_color_search_match --background=35322a
+    set fish_color_valid_path --underline
+end
+
+# eza colors: folders gold, files bone/grey, links grey, executables muted gold.
+set -gx EZA_COLORS "di=38;5;180:fi=38;5;252:ln=38;5;245:ex=38;5;222"
 
 # Prompt.
 if command -q starship
@@ -1002,8 +1028,8 @@ if command -q eza
     alias ls='eza --icons=auto --group-directories-first'
     alias ll='eza -lah --icons=auto --group-directories-first --git'
     alias la='eza -a --icons=auto --group-directories-first'
-    alias lt='eza --tree --icons=auto --level=2'
-    alias tree='eza --tree --icons=auto'
+    alias lt='eza --tree --icons=auto --group-directories-first --level=2'
+    alias tree='eza --tree --icons=auto --group-directories-first'
 else
     alias ll='ls -lah --color=auto'
     alias la='ls -A --color=auto'
@@ -1024,24 +1050,41 @@ if command -q fdfind
     alias fd='fdfind'
 end
 
-# Useful shortcuts.
+# Navigation.
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+
+# Search. Keep grep as grep, but add rg shortcut.
 alias grep='grep --color=auto'
+if command -q rg
+    alias rgg='rg'
+end
+
+# Git.
+alias gs='git status'
+alias gp='git pull'
+alias gl='git log --oneline --graph --decorate -20'
+alias gcm='git commit -m'
+
+# Debian/system helpers.
+alias c='clear'
 alias update='sudo apt update && sudo apt full-upgrade -y'
+alias install='sudo apt install'
+alias search='apt search'
 alias cleanup='sudo apt autoremove --purge -y && sudo apt clean'
 alias ports='ss -tulpn'
 alias df='df -h'
 alias free='free -h'
+alias top='btop'
 alias music='kew'
-alias gs='git status'
-alias gp='git pull'
-alias gcm='git commit -m'
 
-# Optional: show system info manually with "ff".
+# Optional system info manually with "ff".
 if command -q fastfetch
     alias ff='fastfetch'
 end
 
-# Key bindings and fzf integration.
+# fzf integration, if supported by the packaged version.
 if status is-interactive
     if command -q fzf
         fzf --fish | source 2>/dev/null
@@ -1049,91 +1092,143 @@ if status is-interactive
 end
 EOF
 
-if [[ ! -f "$HOME/.config/starship.toml" ]]; then
-  cat > "$HOME/.config/starship.toml" <<'EOF'
-add_newline = false
-format = "$directory$git_branch$git_status$cmd_duration$line_break$character"
+cat > "$HOME/.config/starship.toml" <<'EOF'
+# NIRU Noir Starship prompt.
+add_newline = true
+
+format = """
+$directory\
+$git_branch\
+$git_status\
+$cmd_duration\
+$line_break\
+$character
+"""
 
 [directory]
+style = "bold #c8b46a"
 truncation_length = 4
 truncate_to_repo = false
-style = "bold cyan"
 
 [git_branch]
 format = "[$symbol$branch]($style) "
-symbol = " "
-style = "bold purple"
+symbol = "◈ "
+style = "#9c8a5b"
 
 [git_status]
 format = "[$all_status$ahead_behind]($style) "
-style = "bold red"
+style = "#7a7a7a"
 
 [cmd_duration]
 min_time = 2000
 format = "[$duration]($style) "
-style = "yellow"
+style = "#8f8f8f"
 
 [character]
-success_symbol = "[❯](bold green)"
-error_symbol = "[✖](bold red)"
+success_symbol = "[❯](bold #d6d1c4)"
+error_symbol = "[❯](bold #9a5a4f)"
 EOF
-fi
 
-if [[ ! -f "$HOME/.config/alacritty/alacritty.toml" ]]; then
-  cat > "$HOME/.config/alacritty/alacritty.toml" <<'EOF'
-[window]
-padding = { x = 8, y = 8 }
-dynamic_padding = true
-opacity = 0.94
-
-[font]
-normal = { family = "JetBrainsMono Nerd Font", style = "Regular" }
-bold = { family = "JetBrainsMono Nerd Font", style = "Bold" }
-italic = { family = "JetBrainsMono Nerd Font", style = "Italic" }
-size = 11.0
-
-[terminal.shell]
-program = "/usr/bin/fish"
-EOF
-fi
-
-if [[ ! -f "$HOME/.config/kitty/kitty.conf" ]]; then
-  cat > "$HOME/.config/kitty/kitty.conf" <<'EOF'
-# NIRUCON Kitty config for Debian/dwm.
+cat > "$HOME/.config/kitty/kitty.conf" <<'EOF'
+# ~/.config/kitty/kitty.conf
+# NIRU Noir for Debian/dwm.
 
 font_family JetBrainsMono Nerd Font
 bold_font auto
 italic_font auto
 bold_italic_font auto
-font_size 11.0
+font_size 12.0
 
 shell /usr/bin/fish
 
+background #0b0b0b
+foreground #d6d1c4
+
+selection_background #35322a
+selection_foreground #f2ead3
+
+cursor #c8b46a
+cursor_text_color #0b0b0b
+cursor_shape beam
+cursor_blink_interval 0.5
+
+url_color #c8b46a
+
+color0  #0b0b0b
+color1  #7a3f35
+color2  #8a805f
+color3  #c8b46a
+color4  #8f8f8f
+color5  #a39a7a
+color6  #b8b8b8
+color7  #d6d1c4
+color8  #4a4a4a
+color9  #9a5a4f
+color10 #a8a080
+color11 #d6c27a
+color12 #b0b0b0
+color13 #b8ad8a
+color14 #cccccc
+color15 #f2ead3
+
 scrollback_lines 50000
 enable_audio_bell no
+visual_bell_duration 0
 confirm_os_window_close 0
 
-background_opacity 0.94
+window_padding_width 10
+background_opacity 0.96
 dynamic_background_opacity yes
-window_padding_width 8
 
 copy_on_select clipboard
 strip_trailing_spaces smart
 
-cursor_shape beam
-cursor_blink_interval 0.5
-
 tab_bar_edge bottom
-tab_bar_style powerline
+tab_bar_style hidden
+
+map ctrl+shift+t new_tab
+map ctrl+shift+w close_tab
+map ctrl+shift+enter new_window
 EOF
-fi
+
+cat > "$HOME/.config/alacritty/alacritty.toml" <<'EOF'
+# NIRU Noir Alacritty fallback config.
+
+[window]
+padding = { x = 10, y = 10 }
+dynamic_padding = true
+opacity = 0.96
+
+[font]
+normal = { family = "JetBrainsMono Nerd Font", style = "Regular" }
+bold = { family = "JetBrainsMono Nerd Font", style = "Bold" }
+italic = { family = "JetBrainsMono Nerd Font", style = "Italic" }
+size = 12.0
+
+[terminal.shell]
+program = "/usr/bin/fish"
+
+[colors.primary]
+background = "#0b0b0b"
+foreground = "#d6d1c4"
+
+[colors.cursor]
+text = "#0b0b0b"
+cursor = "#c8b46a"
+EOF
+
+cat > "$HOME/.config/bat/config" <<'EOF'
+--theme=TwoDark
+--style=plain
+--paging=never
+EOF
 
 # Also remove the Fish greeting at universal-variable level for existing users.
 if command -v fish >/dev/null 2>&1; then
   fish -c 'set -U fish_greeting ""' 2>/dev/null || true
 fi
 
-ok "Debian-safe fish, Kitty and Alacritty configuration written."
+ok "Integrated NIRU Noir fish, Kitty, Alacritty, Starship and bat configuration written."
 
 # -----------------------------------------------------------------------------
 # Nerd Font
