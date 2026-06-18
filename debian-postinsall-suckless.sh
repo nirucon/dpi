@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # =============================================================================
-# NIRUCON Debian 13 dwm Postinstall v2.1.0
+# NIRUCON Debian 13 dwm Postinstall v2.2.0
 # =============================================================================
 #
 # Target:
@@ -13,7 +13,7 @@ IFS=$'\n\t'
 #   Install a clean, minimal, dwm-based X11 desktop on Debian with SDDM,
 #   NIRUCON suckless tools, look and feel files, fish shell, optional laptop
 #   packages and complete selectable audio profiles for Reaper/studio/Windows-VST use,
-#   plus an integrated NIRU Noir Fish/Kitty/Starship terminal profile.
+#   plus an integrated NIRU Noir Fish/Kitty/Starship terminal profile and robust studio profile handling.
 #
 # Design goals:
 #   - Keep the system clean and stable.
@@ -321,7 +321,7 @@ sudo apt install "${APT_FLAGS[@]}" \
   ca-certificates gnupg lsb-release apt-transport-https \
   xorg xinit x11-xserver-utils x11-utils x11-xkb-utils xclip xsel \
   sddm \
-  network-manager network-manager-gnome rfkill iw wireless-tools \
+  network-manager network-manager-gnome rfkill iw \
   libx11-dev libxft-dev libxinerama-dev libxrandr-dev libxext-dev \
   libxrender-dev libxfixes-dev libharfbuzz-dev libimlib2-dev \
   fontconfig fonts-dejavu fonts-noto fonts-noto-color-emoji fonts-font-awesome \
@@ -1026,9 +1026,9 @@ end
 # Modern ls, with safe fallback.
 if command -q eza
     alias ls='eza --icons=auto --group-directories-first'
-    alias ll='eza -lah --icons=auto --group-directories-first --git'
+    alias ll='eza -lah --icons=auto --group-directories-first'
     alias la='eza -a --icons=auto --group-directories-first'
-    alias lt='eza --tree --icons=auto --group-directories-first --level=2'
+    alias lt='eza --tree --icons=auto --group-directories-first'
     alias tree='eza --tree --icons=auto --group-directories-first'
 else
     alias ll='ls -lah --color=auto'
@@ -1535,7 +1535,7 @@ install_signal() {
     | gpg --dearmor \
     | sudo tee /usr/share/keyrings/signal-desktop-keyring.gpg >/dev/null
 
-  echo "deb [signed-by=/usr/share/keyrings/signal-desktop-keyring.gpg] https://updates.signal.org/desktop/apt xenial main" \
+  echo "deb [arch=amd64 signed-by=/usr/share/keyrings/signal-desktop-keyring.gpg] https://updates.signal.org/desktop/apt xenial main" \
     | sudo tee /etc/apt/sources.list.d/signal-xenial.list >/dev/null
 
   sudo apt update
