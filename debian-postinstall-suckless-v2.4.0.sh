@@ -417,8 +417,8 @@ sudo apt install "${APT_FLAGS[@]}" \
   lm-sensors smartmontools pciutils usbutils btrfs-progs gdisk parted \
   neovim vim micro \
   mpv vlc cmus kew ffmpeg ffmpegthumbnailer gimp imagemagick sxiv \
-  arandr autorandr lxappearance papirus-icon-theme adwaita-icon-theme unrar-free p7zip-full \
-  nextcloud-desktop \
+  arandr autorandr lxappearance arc-theme breeze-gtk-theme papirus-icon-theme adwaita-icon-theme unrar-free p7zip-full \
+  mesa-utils libspa-0.2-bluetooth nextcloud-desktop \
   upower acpi
 
 ok "Base dwm/X11 package set installed."
@@ -867,7 +867,7 @@ if [[ "$INSTALL_GAMING" -eq 1 ]]; then
   sudo apt update
 
   say "Installing Steam, RetroArch, GameMode, MangoHud and Vulkan support..."
-  sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" \
+  apt_install_available \
     steam-installer \
     steam-devices \
     retroarch \
@@ -887,7 +887,7 @@ if [[ "$INSTALL_GAMING" -eq 1 ]]; then
 
   if [[ "$AMD_GPU" -eq 1 ]]; then
     say "Installing AMD-specific X11/Mesa/video acceleration packages..."
-    sudo DEBIAN_FRONTEND=noninteractive apt install "${APT_FLAGS[@]}" \
+    apt_install_available \
       xserver-xorg-video-amdgpu \
       firmware-amd-graphics \
       vainfo \
@@ -1131,14 +1131,6 @@ EOF
     "$LOCAL_BIN/monitor-rotate.sh"
 
   ok "Multi-monitor helpers created."
-
-  phase "Disabling autorandr system service"
-  note "autorandr is useful inside X11/dwm, but the packaged system service can fail during boot without DISPLAY."
-  sudo systemctl disable --now autorandr.service 2>/dev/null || true
-  sudo systemctl mask autorandr.service 2>/dev/null || true
-  sudo systemctl reset-failed autorandr.service 2>/dev/null || true
-  sudo systemctl daemon-reload || true
-  ok "autorandr.service disabled/masked; use monitor-apply.sh inside dwm instead."
 fi
 
 # -----------------------------------------------------------------------------
@@ -1779,10 +1771,7 @@ export DESKTOP_SESSION=dwm
 
 command -v setxkbmap >/dev/null 2>&1 && setxkbmap se
 command -v xsetroot >/dev/null 2>&1 && xsetroot -solid "#111111"
-# Apply saved autorandr profile only inside a local X11 session. This is not a systemd boot service.
-if [[ -n "${DISPLAY:-}" ]] && command -v autorandr >/dev/null 2>&1; then
-  autorandr --change >/dev/null 2>&1 || true
-fi
+[[ -n "${DISPLAY:-}" ]] && command -v autorandr >/dev/null 2>&1 && autorandr --change >/dev/null 2>&1 || true
 EOF
 
 cat > "$XINITRC_DIR/20-lookandfeel.sh" <<'EOF'
@@ -2075,7 +2064,6 @@ echo
 echo "Audio"
 echo "  PipeWire:        $(command -v pipewire || echo missing)"
 echo "  WirePlumber:     $(command -v wireplumber || echo missing)"
-echo "  pw-top:          $(command -v pw-top || echo optional/missing)"
 echo "  pactl:           $(command -v pactl || echo missing)"
 echo "  pamixer:         $(command -v pamixer || echo missing)"
 echo "  qpwgraph:        $(command -v qpwgraph || echo optional/missing)"
@@ -2110,9 +2098,6 @@ echo "  MangoHud:        $(command -v mangohud || echo optional/missing)"
 echo "  GOverlay:        $(command -v goverlay || echo optional/missing)"
 echo "  Gamescope:       $(command -v gamescope || echo optional/missing)"
 echo "  Vulkaninfo:      $(command -v vulkaninfo || echo optional/missing)"
-if command -v vulkaninfo >/dev/null 2>&1; then
-  echo "  Vulkan summary:  $(vulkaninfo --summary 2>/dev/null | grep -m1 "deviceName" | sed "s/^[[:space:]]*//" || echo available)"
-fi
 echo "  Gaming status:   $(command -v gaming-status.sh || echo optional/missing)"
 echo
 
@@ -2155,45 +2140,6 @@ else
   ok "Workstation profile installed."
 fi
 
-
-# -----------------------------------------------------------------------------
-# Compact verification summary
-# -----------------------------------------------------------------------------
-
-phase "NIRUCON compact system check"
-check_cmd() {
-  local label="$1" cmd="$2"
-  if command -v "$cmd" >/dev/null 2>&1; then
-    printf "  %-18s OK\n" "$label"
-  else
-    printf "  %-18s missing\n" "$label"
-  fi
-}
-check_service_enabled() {
-  local label="$1" svc="$2"
-  if systemctl is-enabled "$svc" >/dev/null 2>&1; then
-    printf "  %-18s OK\n" "$label"
-  else
-    printf "  %-18s missing/disabled\n" "$label"
-  fi
-}
-check_cmd "dwm" dwm
-check_cmd "st" st
-check_cmd "dmenu" dmenu
-check_cmd "slock" slock
-check_cmd "fish" fish
-check_cmd "kitty" kitty
-check_cmd "pipewire" pipewire
-check_cmd "wireplumber" wireplumber
-check_service_enabled "sddm" sddm
-check_cmd "git" git
-check_cmd "tailscale" tailscale
-check_cmd "steam" steam
-check_cmd "retroarch" retroarch
-check_cmd "vulkaninfo" vulkaninfo
-check_cmd "gaming-status" gaming-status.sh
-check_cmd "audio-status" audio-status.sh
-echo
 # -----------------------------------------------------------------------------
 # Final instructions
 # -----------------------------------------------------------------------------
